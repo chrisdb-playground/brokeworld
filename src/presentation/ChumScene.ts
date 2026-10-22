@@ -125,7 +125,7 @@ export class ChumScene extends Phaser.Scene {
 
   create() {
     // 0. Sandy Floor / Background TileSprite
-    this.floorTile = this.add.tileSprite(500, 360, 3600, 2400, 'sandy_floor').setDepth(0);
+    this.floorTile = this.add.tileSprite(600, 360, 4200, 2600, 'sandy_floor').setDepth(0);
 
     // 1. Graphics layers in depth order
     this.bgGfx = this.add.graphics().setDepth(1);
@@ -145,9 +145,9 @@ export class ChumScene extends Phaser.Scene {
       this.renderWorld(snapshot);
     });
 
-    // Center camera on world center
-    this.cameras.main.centerOn(500, 370);
-    this.cameras.main.setZoom(1.05);
+    // Center camera on world center for spread out layout
+    this.cameras.main.centerOn(600, 370);
+    this.cameras.main.setZoom(0.92);
 
     // Initial render
     this.renderWorld(this.currentSnapshot);
@@ -168,14 +168,14 @@ export class ChumScene extends Phaser.Scene {
     };
 
     // UK Label
-    const ukText = this.add.text(40, 45, '🇬🇧 UNITED KINGDOM (UK) — FINAL DESTINATION', {
+    const ukText = this.add.text(20, 35, '🇬🇧 UNITED KINGDOM (UK) — FINAL DESTINATION', {
       ...textStyle,
       color: '#38bdf8',
     });
     this.labelsContainer.add(ukText);
 
     // Channel Border Label
-    const channelText = this.add.text(500, 192, '🌊 ENGLISH CHANNEL MARITIME BORDER — PASSAGE TO UK', {
+    const channelText = this.add.text(600, 192, '🌊 ENGLISH CHANNEL MARITIME BORDER — PASSAGE TO UK', {
       ...textStyle,
       color: '#facc15',
     });
@@ -183,14 +183,14 @@ export class ChumScene extends Phaser.Scene {
     this.labelsContainer.add(channelText);
 
     // West Europe Label
-    const eurText = this.add.text(40, 235, '🇪🇺 WEST EUROPE — TRANSIT & DESTINATION', {
+    const eurText = this.add.text(20, 220, '🇪🇺 WEST EUROPE — TRANSIT & DESTINATION', {
       ...textStyle,
       color: '#4ade80',
     });
     this.labelsContainer.add(eurText);
 
     // Mediterranean Sea Border Label
-    const medText = this.add.text(500, 492, '🌊 MEDITERRANEAN SEA BORDER — AFRICA ➔ EUROPE', {
+    const medText = this.add.text(600, 492, '🌊 MEDITERRANEAN SEA BORDER — AFRICA ➔ EUROPE', {
       ...textStyle,
       color: '#facc15',
     });
@@ -198,7 +198,7 @@ export class ChumScene extends Phaser.Scene {
     this.labelsContainer.add(medText);
 
     // North Africa Label
-    const afrText = this.add.text(40, 535, '🌍 NORTH AFRICA — CHUMIGRANT ORIGINS', {
+    const afrText = this.add.text(20, 535, '🌍 NORTH AFRICA — CHUMIGRANT ORIGINS', {
       ...textStyle,
       color: '#fb923c',
     });
@@ -316,8 +316,8 @@ export class ChumScene extends Phaser.Scene {
     const gfx = this.bgGfx;
     gfx.clear();
 
-    const worldW = 1400;
-    const startX = -200;
+    const worldW = 1800;
+    const startX = -300;
 
     // 1. UK Region (North: y: -100 to 205) - Oceanic Navy
     gfx.fillStyle(0x0c1b2e, 0.55);
