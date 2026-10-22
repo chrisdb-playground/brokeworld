@@ -545,6 +545,11 @@ export class HudOverlay {
           ${loc.kind === 'DEPOT' ? `
             <div class="insp-row"><span class="lbl">CHUMS IN DEPOT</span><span class="val text-green">${chumsInDepot.length}</span></div>
             <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val">${incomingRoutes.length}</span></div>
+            <div class="insp-row"><span class="lbl">OUTGOING ROUTES</span><span class="val">${outgoingRoutes.length}</span></div>
+          ` : ''}
+          ${loc.kind === 'WORKSHOP' ? `
+            <div class="insp-row"><span class="lbl">CHUMS AT WORKSHOP</span><span class="val text-amber">${chumsInDepot.length}</span></div>
+            <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val">${incomingRoutes.length}</span></div>
           ` : ''}
         </div>
 
@@ -600,6 +605,23 @@ export class HudOverlay {
               </div>
             `).join('')}
             ${chumsInDepot.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No chumigrants in depot yet.</div>' : ''}
+          </div>
+        ` : ''}
+
+        ${loc.kind === 'WORKSHOP' ? `
+          <div class="insp-subhead">CHUMIGRANTS STATIONED AT WORKSHOP (${chumsInDepot.length})</div>
+          <div class="chums-scroll-list">
+            ${chumsInDepot.map((c) => `
+              <div class="chum-row-item" data-chum-id="${c.id}">
+                <div class="chum-mini-avatar">${ChumRenderer.generateSvg(c, 36)}</div>
+                <div class="chum-mini-info">
+                  <div class="c-name">${c.name} (${c.originName})</div>
+                  <div class="c-dest">Status: <b class="text-amber">Working in Workshop</b></div>
+                </div>
+                <span class="c-status" style="background:#f59e0b22;color:#fbbf24">ARRIVED</span>
+              </div>
+            `).join('')}
+            ${chumsInDepot.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No chumigrants stationed at workshop yet.</div>' : ''}
           </div>
         ` : ''}
       `;

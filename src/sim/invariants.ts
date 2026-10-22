@@ -27,19 +27,28 @@ export function assertInvariants(state: WorldSnapshot): void {
     }
   }
 
-  // 2. Physical connections connect only RECRUITER to DEPOT across the border
+  // 2. Physical connections connect RECRUITER -> DEPOT (cross-border) OR DEPOT -> WORKSHOP (same-region)
   for (const conn of Object.values(state.connections)) {
     const src = state.locations[conn.sourceId];
     const tgt = state.locations[conn.targetId];
-    if (!src || src.kind !== 'RECRUITER' || !tgt || tgt.kind !== 'DEPOT') {
-      throw new Error(`Invariant failed: connection ${conn.id} must connect RECRUITER to DEPOT`);
+    if (!src || !tgt) {
+      throw new Error(`Invariant failed: connection ${conn.id} missing endpoint`);
     }
-    if (!conn.isCrossBorder) {
-      throw new Error(`Invariant failed: connection ${conn.id} must be cross-border`);
+    const isRecToDepot = src.kind === 'RECRUITER' && tgt.kind === 'DEPOT';
+    const isDepotToWorkshop = src.kind === 'DEPOT' && tgt.kind === 'WORKSHOP';
+
+    if (!isRecToDepot && !isDepotToWorkshop) {
+      throw new Error(`Invariant failed: connection ${conn.id} must connect RECRUITER->DEPOT or DEPOT->WORKSHOP`);
+    }
+    if (isRecToDepot && !conn.isCrossBorder) {
+      throw new Error(`Invariant failed: RECRUITER->DEPOT connection ${conn.id} must be cross-border`);
+    }
+    if (isDepotToWorkshop && (conn.isCrossBorder || src.region !== tgt.region)) {
+      throw new Error(`Invariant failed: DEPOT->WORKSHOP connection ${conn.id} must be in the same region`);
     }
   }
 
-  // 3. "voyages are recruiter-> depot only, not depot->"
+  // 3. Routes: RECRUITER -> DEPOT or DEPOT -> WORKSHOP
   // "all nodes are owned by a single gang, can only be used by that gang"
   // "1 route max between nodes"
   const pairCounts = new Map<string, number>();
@@ -48,8 +57,17 @@ export function assertInvariants(state: WorldSnapshot): void {
     if (route.status === 'ACTIVE') {
       const src = state.locations[route.sourceId];
       const tgt = state.locations[route.targetId];
-      if (!src || src.kind !== 'RECRUITER' || !tgt || tgt.kind !== 'DEPOT') {
-        throw new Error(`Invariant failed: route ${route.id} must be RECRUITER -> DEPOT only`);
+      if (!src || !tgt) {
+        throw new Error(`Invariant failed: route ${route.id} missing endpoint`);
+      }
+      const isRecToDepot = src.kind === 'RECRUITER' && tgt.kind === 'DEPOT';
+      const isDepotToWorkshop = src.kind === 'DEPOT' && tgt.kind === 'WORKSHOP';
+
+      if (!isRecToDepot && !isDepotToWorkshop) {
+        throw new Error(`Invariant failed: route ${route.id} must be RECRUITER->DEPOT or DEPOT->WORKSHOP only`);
+      }
+      if (isDepotToWorkshop && src.region !== tgt.region) {
+        throw new Error(`Invariant failed: route ${route.id} DEPOT->WORKSHOP must be in the same region`);
       }
       if (src.gangId !== route.gangId || tgt.gangId !== route.gangId) {
         throw new Error(`Invariant failed: route ${route.id} nodes must be owned by the route's gang ${route.gangId}`);
@@ -65,7 +83,7 @@ export function assertInvariants(state: WorldSnapshot): void {
     }
   }
 
-  // 4. Every voyage has valid route, and is RECRUITER -> DEPOT only
+  // 4. Every voyage has valid route, and matches route endpoints
   for (const voyage of Object.values(state.voyages)) {
     if (voyage.status === 'IN_PROGRESS') {
       const route = state.routes[voyage.routeId];
@@ -77,13 +95,15 @@ export function assertInvariants(state: WorldSnapshot): void {
       }
       const src = state.locations[voyage.sourceId];
       const tgt = state.locations[voyage.targetId];
-      if (src.kind !== 'RECRUITER' || tgt.kind !== 'DEPOT') {
-        throw new Error(`Invariant failed: voyage ${voyage.id} must be RECRUITER -> DEPOT only`);
+      const isRecToDepot = src?.kind === 'RECRUITER' && tgt?.kind === 'DEPOT';
+      const isDepotToWorkshop = src?.kind === 'DEPOT' && tgt?.kind === 'WORKSHOP';
+      if (!isRecToDepot && !isDepotToWorkshop) {
+        throw new Error(`Invariant failed: voyage ${voyage.id} must be RECRUITER->DEPOT or DEPOT->WORKSHOP only`);
       }
     }
   }
 
-  // 5. Chumigrants: waiting are at RECRUITER nodes, valid origins and destinations
+  // 5. Chumigrants: waiting are at RECRUITER nodes; arrived are at DEPOT or WORKSHOP nodes
   for (const chum of Object.values(state.chumigrants)) {
     if (chum.status === 'WAITING') {
       const loc = state.locations[chum.originId];
@@ -93,8 +113,8 @@ export function assertInvariants(state: WorldSnapshot): void {
     }
     if (chum.status === 'ARRIVED') {
       const loc = state.locations[chum.originId];
-      if (!loc || loc.kind !== 'DEPOT') {
-        throw new Error(`Invariant failed: arrived chum ${chum.id} must be at a DEPOT node`);
+      if (!loc || (loc.kind !== 'DEPOT' && loc.kind !== 'WORKSHOP')) {
+        throw new Error(`Invariant failed: arrived chum ${chum.id} must be at a DEPOT or WORKSHOP node`);
       }
     }
     if (chum.originRegion && !['AFRICA', 'EUROPE'].includes(chum.originRegion)) {

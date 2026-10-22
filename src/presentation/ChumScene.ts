@@ -598,6 +598,21 @@ export class ChumScene extends Phaser.Scene {
       } else {
         countText.setText('');
       }
+    } else if (loc.kind === 'WORKSHOP') {
+      // Arrived Chums stationed and working in this Workshop (industrial-press)
+      const chumsHere = Object.values(snapshot.chumigrants).filter(
+        (c) => c.originId === loc.id && c.status === 'ARRIVED'
+      );
+
+      if (chumsHere.length > 0) {
+        countText.setText(`⚙️ ${chumsHere.length}`);
+        badgeGfx.fillStyle(0x0f172a, 0.9);
+        badgeGfx.fillRoundedRect(-24, -54, 48, 18, 4);
+        badgeGfx.lineStyle(1.5, 0xf59e0b, 0.85);
+        badgeGfx.strokeRoundedRect(-24, -54, 48, 18, 4);
+      } else {
+        countText.setText('');
+      }
     } else {
       countText.setText('');
     }

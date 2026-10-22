@@ -14,17 +14,27 @@ Source code reference:
 
 Chum World strictly enforces four non-negotiable simulation rules for all route services:
 
-### 1. Recruiter-to-Depot Directionality Rule
-- A route service **must strictly originate at a `RECRUITER` node** and **terminate at a `DEPOT` node**.
-- Depot-to-Recruiter routes, Depot-to-Depot domestic routes, and Recruiter-to-Recruiter lateral routes are **strictly prohibited**.
+### 1. Permitted Route Topologies
+Chum World strictly permits two and only two route service topologies:
+1. **Cross-Border Recruiter-to-Depot**:
+   - `RECRUITER` ➔ `DEPOT` across regional borders (`isCrossBorder: true`, Mediterranean or Channel boat crossing).
+2. **Same-Region Depot-to-Workshop**:
+   - `DEPOT` ➔ `WORKSHOP` within the exact same region (`isCrossBorder: false`, overland van transit).
+- All other combinations (Depot-to-Recruiter, Recruiter-to-Recruiter, Cross-border Depot-to-Workshop, etc.) are **strictly prohibited**.
 ```typescript
-if (src.kind !== 'RECRUITER' || tgt.kind !== 'DEPOT') {
-  throw new Error(`Invariant failed: route ${route.id} must be RECRUITER -> DEPOT only`);
+const isRecToDepot = src.kind === 'RECRUITER' && tgt.kind === 'DEPOT';
+const isDepotToWorkshop = src.kind === 'DEPOT' && tgt.kind === 'WORKSHOP';
+
+if (!isRecToDepot && !isDepotToWorkshop) {
+  throw new Error(`Invariant failed: route ${route.id} must be RECRUITER->DEPOT or DEPOT->WORKSHOP only`);
+}
+if (isDepotToWorkshop && src.region !== tgt.region) {
+  throw new Error(`Invariant failed: route ${route.id} DEPOT->WORKSHOP must be in the same region`);
 }
 ```
 
 ### 2. Single-Gang Endpoint Ownership Rule
-- Both the source `RECRUITER` and the target `DEPOT` must be owned by the route's operating gang:
+- Both the source node and the target node must be owned by the route's operating gang:
 ```typescript
 if (src.gangId !== route.gangId || tgt.gangId !== route.gangId) {
   throw new Error(`Invariant failed: route ${route.id} nodes must be owned by the route's gang`);
@@ -39,10 +49,9 @@ const pairKey = `${route.sourceId}__${route.targetId}`;
 // If count > 1, throw invariant failure
 ```
 
-### 4. Cross-Border Requirement
-- Every physical connection hosting a route service must span across regional boundaries (`isCrossBorder: true`):
-  - **Africa ➔ Europe** (crossing the Mediterranean Sea)
-  - **Europe ➔ United Kingdom** (crossing the English Channel)
+### 4. Regional Scope & Transportation Modes
+- **Recruiter ➔ Depot**: Cross-border (`isCrossBorder: true`, `mode: 'BOAT'`).
+- **Depot ➔ Workshop**: Same region (`isCrossBorder: false`, `mode: 'VAN'`).
 
 ---
 

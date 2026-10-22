@@ -67,37 +67,44 @@ const baseReliability = route ? route.reliability : 0.97;
 const isFailed = prng.chance(1 - baseReliability);
 ```
 
-### 1. Success Outcome (96%–98% Probability)
+### 1. Success Outcome (97%–99% Probability)
 When successful:
 - **Voyage Status**: Becomes `'SUCCESS'`.
 - **Gang Rewards**:
   - `gang.stats.voyagesSuccessful += 1`
   - `gang.reputation = Math.min(100, gang.reputation + 1)` (+1 reputation gain).
 - **Route Record**: `route.totalPassengers += passengerIds.length`.
-- **Passenger Settlement (Depot Retention)**:
+- **Passenger Settlement**:
   - Each passenger Chum transitions to `status = 'ARRIVED'`.
-  - `chum.originId` is updated to the destination `DEPOT` ID (`voyage.targetId`).
+  - `chum.originId` is updated to the destination ID (`voyage.targetId`).
   - Active references are cleared: `recruitedByGangId`, `assignedRouteId`, `voyageId` reset to `undefined`.
-  - The Chum exits the active migration market (`state.stats.activeChums -= 1`, `state.stats.totalDepartedChums += 1`).
-  - **The Chum remains safely housed in the destination Depot permanently**, viewable in the Depot's passenger manifest.
+  - **Recruiter ➔ Depot**: Exits active transit market (`state.stats.activeChums -= 1`, `state.stats.totalDepartedChums += 1`). Remains housed safely in the destination Depot.
+  - **Depot ➔ Workshop**: Arrives via overland van and is stationed at the Workshop for industrial duties. (Active chums count is not decremented again).
+- **Driver / Skipper Release**: The assigned Hood is released back to gang HQ on `STANDBY`.
 
-### 2. Disruption Outcome (2%–4% Probability)
+### 2. Disruption Outcome (1%–3% Probability)
 A small fraction of voyages fail:
 - **Disruption Classification**:
   - **60% Chance**: `'INTERCEPTED'` (Patrol encounter / border interception).
-  - **40% Chance**: `'CANCELLED'` (Vessel breakdown / aborted crossing).
+  - **40% Chance**: `'CANCELLED'` (Breakdown / aborted run).
 - **Gang Penalties**:
   - `gang.stats.voyagesDisrupted += 1`
   - `gang.reputation` drops by **`-8`** if intercepted, or **`-4`** if cancelled (minimum floor of 10).
 - **Passenger Safe Return Guarantee**:
-  - **Passengers are NEVER lost, injured, or removed from the simulation**.
-  - All passengers revert to `status = 'WAITING'`.
-  - Assignments cleared: `recruitedByGangId`, `assignedRouteId`, `voyageId` reset to `undefined`.
-  - Patience penalty:
-    ```typescript
-    chum.patienceRemainingTicks = Math.max(300, chum.patienceRemainingTicks - 200);
-    ```
-  - Passengers remain waiting at the source `RECRUITER` node to attempt future passage.
+  - **Passengers are NEVER lost, injured, or deleted from the simulation**.
+  - **Recruiter ➔ Depot Disrupted**: Passengers revert to `status = 'WAITING'` at the origin Recruiter, with a minor patience penalty (`-200` ticks).
+  - **Depot ➔ Workshop Disrupted**: Passengers revert to `status = 'ARRIVED'` and return safely to the source Depot.
+- **Driver / Skipper Release**: The assigned Hood is released back to gang HQ on `STANDBY`.
+
+---
+
+## 🎲 Seeded PRNG Decision & Batching for Workshop Transfers
+
+Transferring Chums from a Depot to a Workshop is strictly governed by the seeded Mulberry32 PRNG:
+1. **Decision Gate**: When an active same-region Depot-to-Workshop route has Chums residing in the depot, the gang evaluates `prng.chance(0.20)`.
+2. **Batch ("Bunch") Sizing**: If positive, the bunch size is chosen via `prng.nextInt(1, Math.min(chumsInDepot.length, route.capacity))`.
+3. **Chum Selection**: Passengers are chosen using seeded random picks (`prng.nextInt`).
+4. **Zero Unseeded Randomness**: No `Math.random()` calls exist anywhere in the engine.
 
 ---
 
@@ -106,5 +113,7 @@ A small fraction of voyages fail:
 On every tick, [`assertInvariants()`](file:///c:/Users/chris/src/playground/chumworld/src/sim/invariants.ts#L68-L84) verifies:
 1. Every in-progress voyage points to a valid, existing `routeId`.
 2. The voyage's `sourceId` and `targetId` strictly match the referenced route's endpoints.
-3. The voyage's source must be a `RECRUITER` and the destination must be a `DEPOT`.
-4. No orphan journeys or ghost passengers exist.
+3. The voyage must be either `RECRUITER ➔ DEPOT` (cross-border) or `DEPOT ➔ WORKSHOP` (same region).
+4. Every in-progress voyage has an assigned Hood skipper or driver.
+5. No orphan journeys or ghost passengers exist.
+

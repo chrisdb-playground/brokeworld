@@ -76,12 +76,21 @@ describe('Chum World Simulation Core', () => {
     for (const route of Object.values(state.routes)) {
       const src = state.locations[route.sourceId];
       const tgt = state.locations[route.targetId];
-      expect(src.kind).toBe('RECRUITER');
-      expect(tgt.kind).toBe('DEPOT');
-      expect(src.tileFamily).toBe('crusher');
-      expect(tgt.tileFamily).toBe('pressure-tank');
-      expect(['AFRICA', 'EUROPE']).toContain(src.region);
-      expect(['EUROPE', 'UK']).toContain(tgt.region);
+      const isRecToDepot = src.kind === 'RECRUITER' && tgt.kind === 'DEPOT';
+      const isDepotToWorkshop = src.kind === 'DEPOT' && tgt.kind === 'WORKSHOP';
+
+      expect(isRecToDepot || isDepotToWorkshop).toBe(true);
+      if (isRecToDepot) {
+        expect(src.tileFamily).toBe('crusher');
+        expect(tgt.tileFamily).toBe('pressure-tank');
+        expect(['AFRICA', 'EUROPE']).toContain(src.region);
+        expect(['EUROPE', 'UK']).toContain(tgt.region);
+      } else {
+        expect(src.tileFamily).toBe('pressure-tank');
+        expect(tgt.tileFamily).toBe('industrial-press');
+        expect(src.region).toBe(tgt.region);
+        expect(route.mode).toBe('VAN');
+      }
     }
   });
 
@@ -122,12 +131,16 @@ describe('Chum World Simulation Core', () => {
     state.chumigrants[chum.id] = chum;
     state.stats.activeChums = 1;
 
+    const testChum = state.chumigrants['CHUM_DEPOT_BOUND'];
+
     // Advance until first voyage completes
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 100; i++) {
       tickWorld(state, prng);
+      if (testChum.status === 'ARRIVED') {
+        break;
+      }
     }
 
-    const testChum = state.chumigrants['CHUM_DEPOT_BOUND'];
     expect(testChum).toBeDefined();
     // Rule: "when a voyage completes the chumigrants remain in the depot, just leave them there"
     expect(testChum.status).toBe('ARRIVED');
@@ -249,4 +262,90 @@ describe('Chum World Simulation Core', () => {
     expect(state.chumigrants[chumId].status).toBe('WAITING');
     expect(state.chumigrants[chumId].recruitedByGangId).toBeUndefined();
   });
+
+  it('establishes routes between depots and workshops in the same region and transfers chums via van voyages', () => {
+    const prng = createPrng(4242);
+    const state = createInitialWorld(prng);
+
+    // Verify each gang has a depot-to-workshop route in the same region
+    for (const gang of Object.values(state.gangs)) {
+      const depWsRoute = Object.values(state.routes).find(
+        (r) =>
+          r.gangId === gang.id &&
+          state.locations[r.sourceId]?.kind === 'DEPOT' &&
+          state.locations[r.targetId]?.kind === 'WORKSHOP'
+      );
+      expect(depWsRoute).toBeDefined();
+      expect(depWsRoute!.mode).toBe('VAN');
+      const src = state.locations[depWsRoute!.sourceId];
+      const tgt = state.locations[depWsRoute!.targetId];
+      expect(src.region).toBe(tgt.region);
+    }
+
+    // Populate Neon Depot with 6 arrived Chums
+    const depRoute = Object.values(state.routes).find(
+      (r) =>
+        r.gangId === 'GANG_NEON_GILL' &&
+        state.locations[r.sourceId]?.kind === 'DEPOT' &&
+        state.locations[r.targetId]?.kind === 'WORKSHOP'
+    )!;
+    expect(depRoute).toBeDefined();
+
+    for (let i = 1; i <= 6; i++) {
+      const cid = `CHUM_DEPOT_TEST_${i}`;
+      state.chumigrants[cid] = {
+        id: cid,
+        name: `Depot Chum ${i}`,
+        originName: 'Tripoli',
+        originRegion: 'AFRICA',
+        desiredRegion: 'EUROPE',
+        originId: depRoute.sourceId,
+        cash: 500,
+        patienceRemainingTicks: 5000,
+        status: 'ARRIVED',
+        avatar: {
+          skinTone: '#fed7aa',
+          shirtColor: '#38bdf8',
+          eyesType: 'dots',
+          mouthType: 'smile',
+          hairColor: '#000',
+          hairStyle: 'bald',
+          luggage: 'backpack',
+        },
+        history: ['Arrived in depot'],
+      };
+    }
+
+    // Advance ticks until the seeded PRNG decides to launch a van voyage from Depot to Workshop
+    let voyageLaunched = false;
+    for (let tick = 0; tick < 50; tick++) {
+      tickWorld(state, prng, []);
+      const vanVoyages = Object.values(state.voyages).filter(
+        (v) => v.routeId === depRoute.id && (v.status === 'IN_PROGRESS' || v.status === 'SUCCESS')
+      );
+      if (vanVoyages.length > 0) {
+        voyageLaunched = true;
+        const v = vanVoyages[0];
+        expect(v.mode).toBe('VAN');
+        expect(v.passengerIds.length).toBeGreaterThanOrEqual(1);
+        expect(v.passengerIds.length).toBeLessThanOrEqual(depRoute.capacity);
+        expect(v.captainHoodId).toBeDefined();
+        break;
+      }
+    }
+    expect(voyageLaunched).toBe(true);
+
+    // Continue running until voyage completes
+    for (let tick = 0; tick < 60; tick++) {
+      tickWorld(state, prng, []);
+    }
+
+    // Verify that at least one Chum has now arrived at the Workshop!
+    const arrivedAtWorkshop = Object.values(state.chumigrants).filter(
+      (c) => c.originId === depRoute.targetId && c.status === 'ARRIVED'
+    );
+    expect(arrivedAtWorkshop.length).toBeGreaterThanOrEqual(1);
+    expect(state.locations[arrivedAtWorkshop[0].originId].kind).toBe('WORKSHOP');
+  });
 });
+

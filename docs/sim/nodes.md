@@ -16,9 +16,9 @@ Every node belongs to exactly one of four functional kinds, each bound to a spec
 | Kind | Purpose | Tile Family | Default Variant | Permitted Regions | Can Recruit Chums? | Can Host Routes? |
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: |
 | **`HQ`** | Central syndicate command post. | `logistics-hub` | `mk1` | `EUROPE` | ❌ No | ❌ No |
-| **`WORKSHOP`** | Fleet staging and mechanical maintenance. | `industrial-press` | `mk1-north` | `EUROPE` | ❌ No | ❌ No |
-| **`RECRUITER`** | Commercial origin depot where Chumigrants assemble and purchase passage. | `crusher` | `mk3` | `AFRICA`, `EUROPE` | ✅ **Yes** | ✅ **Source Only** |
-| **`DEPOT`** | Safe-house terminal where voyages arrive and Chums permanently settle. | `pressure-tank` | `mk1-north` | `EUROPE`, `UK` | ❌ No | ✅ **Target Only** |
+| **`WORKSHOP`** | Fleet staging, mechanic shop & labor destination. | `industrial-press` | `mk1-north` | `EUROPE` | ❌ No | ✅ **Target Only** (from same-region Depot) |
+| **`RECRUITER`** | Commercial origin depot where Chumigrants assemble and purchase passage. | `crusher` | `mk3` | `AFRICA`, `EUROPE` | ✅ **Yes** | ✅ **Source Only** (to Depot) |
+| **`DEPOT`** | Safe-house terminal where voyages arrive and Chums assemble before workshop transfer. | `pressure-tank` | `mk1-north` | `EUROPE`, `UK` | ❌ No | ✅ **Target** (from Recruiter) & **Source** (to Workshop) |
 
 ### Visual Tile Family Mappings
 Simulation invariant checks enforce that tile families correspond strictly to node kinds:
