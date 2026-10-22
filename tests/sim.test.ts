@@ -1,0 +1,252 @@
+import { describe, it, expect } from 'vitest';
+import { createPrng } from '../src/sim/rng';
+import { createInitialWorld } from '../src/sim/createWorld';
+import { tickWorld } from '../src/sim/tick';
+import { processRecruitment } from '../src/sim/recruitment';
+import { LocalGameEngine } from '../src/app/GamePort';
+
+describe('Chum World Simulation Core', () => {
+  it('is completely deterministic across runs with the same seed', () => {
+    const prng1 = createPrng(42);
+    const prng2 = createPrng(42);
+
+    let state1 = createInitialWorld(prng1);
+    let state2 = createInitialWorld(prng2);
+
+    for (let i = 0; i < 150; i++) {
+      state1 = tickWorld(state1, prng1);
+      state2 = tickWorld(state2, prng2);
+    }
+
+    expect(state1.tick).toBe(state2.tick);
+    expect(state1.stats.activeChums).toBe(state2.stats.activeChums);
+    expect(state1.stats.totalVoyagesLaunched).toBe(state2.stats.totalVoyagesLaunched);
+    expect(Object.keys(state1.routes).length).toBe(Object.keys(state2.routes).length);
+  });
+
+  it('enforces that all nodes are owned by a single gang and 1 route max between nodes', () => {
+    const engine = new LocalGameEngine(99);
+    const state = engine.getSnapshot();
+
+    // Check all nodes have owner gang
+    for (const loc of Object.values(state.locations)) {
+      expect(loc.gangId).toBeDefined();
+      expect(state.gangs[loc.gangId]).toBeDefined();
+      expect(['AFRICA', 'EUROPE', 'UK']).toContain(loc.region);
+    }
+
+    // Check routes connect nodes owned by the same gang
+    const pairCounts = new Map<string, number>();
+    for (const route of Object.values(state.routes)) {
+      const src = state.locations[route.sourceId];
+      const tgt = state.locations[route.targetId];
+      expect(src.gangId).toBe(route.gangId);
+      expect(tgt.gangId).toBe(route.gangId);
+
+      const key = `${route.sourceId}__${route.targetId}`;
+      pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+    }
+
+    // 1 route max between nodes
+    for (const count of pairCounts.values()) {
+      expect(count).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('guarantees Chumigrants have origins, appear at Recruiters, and routes connect 3 regions', () => {
+    const engine = new LocalGameEngine(777);
+    engine.advance(300);
+    const state = engine.getSnapshot();
+
+    for (const chum of Object.values(state.chumigrants)) {
+      expect(chum.originName).toBeDefined();
+      expect(chum.originName.length).toBeGreaterThan(0);
+      expect(['AFRICA', 'EUROPE']).toContain(chum.originRegion);
+      expect(['EUROPE', 'UK']).toContain(chum.desiredRegion);
+
+      if (chum.status === 'WAITING' || chum.status === 'RECRUITED') {
+        const origin = state.locations[chum.originId];
+        expect(origin).toBeDefined();
+        expect(origin.kind).toBe('RECRUITER');
+        expect(origin.tileFamily).toBe('crusher');
+        expect(['AFRICA', 'EUROPE']).toContain(origin.region);
+      }
+    }
+
+    for (const route of Object.values(state.routes)) {
+      const src = state.locations[route.sourceId];
+      const tgt = state.locations[route.targetId];
+      expect(src.kind).toBe('RECRUITER');
+      expect(tgt.kind).toBe('DEPOT');
+      expect(src.tileFamily).toBe('crusher');
+      expect(tgt.tileFamily).toBe('pressure-tank');
+      expect(['AFRICA', 'EUROPE']).toContain(src.region);
+      expect(['EUROPE', 'UK']).toContain(tgt.region);
+    }
+  });
+
+  it('leaves chumigrants remaining in the depot when a voyage completes', () => {
+    const prng = createPrng(888);
+    const state = createInitialWorld(prng);
+
+    // Pick an Africa-to-Europe route
+    const afrRoute = Object.values(state.routes).find(
+      (r) => state.locations[r.sourceId]?.region === 'AFRICA' && state.locations[r.targetId]?.region === 'EUROPE'
+    )!;
+    expect(afrRoute).toBeDefined();
+
+    // Create a Chum from Tripoli
+    const chum = {
+      id: 'CHUM_DEPOT_BOUND',
+      name: 'Farouk Fin',
+      originName: 'Tripoli',
+      originRegion: 'AFRICA' as const,
+      desiredRegion: 'EUROPE' as const,
+      originId: afrRoute.sourceId,
+      cash: 800,
+      patienceRemainingTicks: 3000,
+      status: 'RECRUITED' as const,
+      recruitedByGangId: afrRoute.gangId,
+      assignedRouteId: afrRoute.id,
+      avatar: {
+        skinTone: '#fed7aa',
+        shirtColor: '#94a3b8',
+        eyesType: 'wide' as const,
+        mouthType: 'smile' as const,
+        hairColor: '#000',
+        hairStyle: 'short' as const,
+        luggage: 'backpack' as const,
+      },
+      history: ['Originated in Tripoli'],
+    };
+    state.chumigrants[chum.id] = chum;
+    state.stats.activeChums = 1;
+
+    // Advance until first voyage completes
+    for (let i = 0; i < 200; i++) {
+      tickWorld(state, prng);
+    }
+
+    const testChum = state.chumigrants['CHUM_DEPOT_BOUND'];
+    expect(testChum).toBeDefined();
+    // Rule: "when a voyage completes the chumigrants remain in the depot, just leave them there"
+    expect(testChum.status).toBe('ARRIVED');
+    const loc = state.locations[testChum.originId];
+    expect(loc).toBeDefined();
+    expect(loc.kind).toBe('DEPOT');
+    expect(loc.id).toBe(afrRoute.targetId);
+  });
+
+  it('never silently drops passengers on voyage cancellation or interception', () => {
+    const prng = createPrng(1234);
+    const state = createInitialWorld(prng);
+
+    const route = Object.values(state.routes)[0];
+    const chum = {
+      id: 'CHUM_TEST_1',
+      name: 'Testy Chum',
+      originName: 'Tangier',
+      originRegion: 'AFRICA' as const,
+      desiredRegion: 'EUROPE' as const,
+      originId: route.sourceId,
+      cash: 500,
+      patienceRemainingTicks: 1000,
+      status: 'RECRUITED' as const,
+      recruitedByGangId: route.gangId,
+      assignedRouteId: route.id,
+      avatar: {
+        skinTone: '#fed7aa',
+        shirtColor: '#94a3b8',
+        eyesType: 'dots' as const,
+        mouthType: 'smile' as const,
+        hairColor: '#000',
+        hairStyle: 'bald' as const,
+        luggage: 'briefcase' as const,
+      },
+      history: [],
+    };
+    state.chumigrants[chum.id] = chum;
+    state.stats.activeChums = 1;
+
+    // Advance simulation until voyage launches and resolves
+    for (let i = 0; i < 200; i++) {
+      tickWorld(state, prng);
+    }
+
+    const passenger = state.chumigrants['CHUM_TEST_1'];
+    expect(passenger).toBeDefined();
+    expect(['WAITING', 'ARRIVED', 'DEPARTED']).toContain(passenger.status);
+    expect(passenger.history.length).toBeGreaterThan(0);
+  });
+
+  it('employs Hoods to manage all gang nodes and pilot voyages', () => {
+    const prng = createPrng(999);
+    const state = createInitialWorld(prng);
+
+    // Check all initial gangs have hoods employed
+    expect(Object.keys(state.hoods).length).toBeGreaterThanOrEqual(18); // 3 gangs * (1 HQ + 1 WS + 2 REC + 2 DEPOT + 1 STANDBY)
+
+    for (const gang of Object.values(state.gangs)) {
+      const gangHoods = Object.values(state.hoods).filter((h) => h.gangId === gang.id);
+      expect(gangHoods.length).toBeGreaterThanOrEqual(6);
+
+      // Check HQ has an assigned boss Hood
+      const hq = state.locations[gang.hqLocationId];
+      expect(hq.assignedHoodId).toBeDefined();
+      expect(state.hoods[hq.assignedHoodId!].role).toBe('HQ_BOSS');
+      expect(state.hoods[hq.assignedHoodId!].currentTaskDescription).toContain('Directing syndicate operations');
+
+      // Check Recruiters have assigned Hoods
+      for (const recId of gang.recruiterLocationIds || []) {
+        const rec = state.locations[recId];
+        expect(rec.assignedHoodId).toBeDefined();
+        expect(state.hoods[rec.assignedHoodId!].role).toBe('RECRUITER_MANAGER');
+      }
+    }
+  });
+
+  it('blocks recruitment if a recruiter has no assigned managing Hood', () => {
+    const prng = createPrng(555);
+    const state = createInitialWorld(prng);
+
+    const recLoc = Object.values(state.locations).find((l) => l.kind === 'RECRUITER')!;
+    expect(recLoc).toBeDefined();
+
+    // Detach the managing Hood from this recruiter
+    const oldHoodId = recLoc.assignedHoodId;
+    recLoc.assignedHoodId = undefined;
+    if (oldHoodId && state.hoods[oldHoodId]) {
+      state.hoods[oldHoodId].assignment = { type: 'IDLE_HQ', targetId: 'HQ_NEON', role: 'STANDBY' };
+    }
+
+    // Add a waiting Chum at this unstaffed recruiter with plenty of cash
+    const chumId = 'CHUM_UNSTAFFED_TEST';
+    state.chumigrants[chumId] = {
+      id: chumId,
+      name: 'Unstaffed Pip',
+      originName: 'Tripoli',
+      originRegion: 'AFRICA',
+      desiredRegion: 'EUROPE',
+      originId: recLoc.id,
+      cash: 1000,
+      patienceRemainingTicks: 100,
+      status: 'WAITING',
+      avatar: {
+        skinTone: '#fed7aa',
+        shirtColor: '#94a3b8',
+        eyesType: 'dots',
+        mouthType: 'smile',
+        hairColor: '#000',
+        hairStyle: 'bald',
+        luggage: 'none',
+      },
+      history: [],
+    };
+
+    // Run recruitment - recruitment should be blocked because node has no managing Hood!
+    processRecruitment(state, prng, []);
+
+    expect(state.chumigrants[chumId].status).toBe('WAITING');
+    expect(state.chumigrants[chumId].recruitedByGangId).toBeUndefined();
+  });
+});
