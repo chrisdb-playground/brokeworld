@@ -72,7 +72,6 @@ export class HudOverlay {
     this.mountDom();
     if (this.currentSnapshot) {
       this.update(this.currentSnapshot);
-      this.notifyGangSelection();
     }
 
     this.port.subscribe((snapshot) => {

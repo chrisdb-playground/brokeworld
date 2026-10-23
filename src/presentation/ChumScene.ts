@@ -73,6 +73,7 @@ export class ChumScene extends Phaser.Scene {
   private selectedVoyageId: string | null = null;
   private justSelectedInteractiveObject = false;
   private lastHqSignature = '';
+  private isSceneReady = false;
 
   constructor() {
     super('ChumScene');
@@ -212,6 +213,9 @@ export class ChumScene extends Phaser.Scene {
     // Center camera on world center for spread out layout
     this.cameras.main.centerOn(600, 370);
     this.cameras.main.setZoom(0.92);
+
+    // Mark scene as ready
+    this.isSceneReady = true;
 
     // Initial render (backdrop once, then dynamic layers)
     this.renderRegionsBackdrop();
@@ -522,6 +526,9 @@ export class ChumScene extends Phaser.Scene {
 
   // ==================== RENDERING PIPELINE ====================
   renderWorld(snapshot: WorldSnapshot) {
+    if (!this.isSceneReady || !this.bgGfx || !this.influenceGfxUk || !this.nodesContainer) {
+      return;
+    }
     this.renderInfluenceHeatmap(snapshot);
     this.renderPhysicalConnections(snapshot);
     this.renderLocations(snapshot);
@@ -600,6 +607,7 @@ export class ChumScene extends Phaser.Scene {
   }
 
   private renderRegionsBackdrop(_snapshot?: WorldSnapshot) {
+    if (!this.bgGfx || !this.borderGfx) return;
     const gfx = this.bgGfx;
     gfx.clear();
 
