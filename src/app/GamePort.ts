@@ -46,8 +46,9 @@ export class LocalGameEngine implements GamePort {
     return () => this.listeners.delete(listener);
   }
 
-  reset(seed = 1337): void {
-    this.prng = createPrng(seed);
+  reset(seed?: number): void {
+    const nextSeed = seed !== undefined ? seed : (this.state ? this.state.seed : 1337);
+    this.prng = createPrng(nextSeed);
     this.state = createInitialWorld(this.prng);
     this.pendingCommands = [];
     this.notify();

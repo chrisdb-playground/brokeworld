@@ -348,5 +348,24 @@ describe('Chum World Simulation Core', () => {
     expect(arrivedAtWorkshop.length).toBeGreaterThanOrEqual(1);
     expect(state.locations[arrivedAtWorkshop[0].originId].kind).toBe('WORKSHOP');
   });
+
+  it('reset() preserves the current seed for replay, while reset(newSeed) updates the seed', () => {
+    const engine = new LocalGameEngine(424242);
+    expect(engine.getSnapshot().seed).toBe(424242);
+
+    // Advance 50 ticks
+    engine.advance(50);
+    expect(engine.getSnapshot().tick).toBe(50);
+
+    // Call reset() with no args -> preserves 424242 and resets tick to 0
+    engine.reset();
+    expect(engine.getSnapshot().tick).toBe(0);
+    expect(engine.getSnapshot().seed).toBe(424242);
+
+    // Call reset(987654) -> resets tick to 0 and updates seed to 987654
+    engine.reset(987654);
+    expect(engine.getSnapshot().tick).toBe(0);
+    expect(engine.getSnapshot().seed).toBe(987654);
+  });
 });
 

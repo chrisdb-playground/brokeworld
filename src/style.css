@@ -137,6 +137,29 @@ body, html {
   color: #fff;
 }
 
+.seed-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  padding: 0 4px 0 8px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.seed-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+
+.seed-val {
+  font-size: 13px;
+  color: #fff;
+}
+
 .speed-btns {
   display: flex;
   gap: 3px;
@@ -170,6 +193,12 @@ body, html {
   background: rgba(239, 68, 68, 0.2);
   color: #f87171;
   border-color: rgba(239, 68, 68, 0.4);
+}
+
+#btn-random-seed:hover {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  border-color: rgba(168, 85, 247, 0.4);
 }
 
 /* Metrics */

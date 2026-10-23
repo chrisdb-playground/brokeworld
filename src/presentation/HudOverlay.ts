@@ -188,13 +188,18 @@ export class HudOverlay {
             <span class="tick-label">TICK</span>
             <span id="hud-tick" class="tick-val">0</span>
           </div>
+          <div class="seed-chip" title="Active PRNG Seed">
+            <span class="seed-label">SEED</span>
+            <span id="hud-seed" class="seed-val">...</span>
+          </div>
           <div class="speed-btns">
             <button class="spd-btn" data-speed="0">⏸</button>
             <button class="spd-btn active" data-speed="1">1×</button>
             <button class="spd-btn" data-speed="5">5×</button>
             <button class="spd-btn" data-speed="20">20×</button>
             <button class="spd-btn" id="btn-step">⏯ Step</button>
-            <button class="spd-btn" id="btn-reset" title="Reset Simulation (R)">🔄 Reset</button>
+            <button class="spd-btn" id="btn-reset" title="Reset Simulation with Same Seed (R)">🔄 Reset</button>
+            <button class="spd-btn" id="btn-random-seed" title="Roll New Random Seed & Restart">🎲 Random Seed</button>
             <button class="spd-btn active" id="btn-toggle-influence" title="Toggle HQ Influence Zones (I)">🔥 Influence</button>
           </div>
         </div>
@@ -272,6 +277,15 @@ export class HudOverlay {
 
     root.querySelector('#btn-reset')?.addEventListener('click', () => {
       this.scheduler.reset();
+      this.deselectEntity();
+      spdBtns.forEach((b) => {
+        b.classList.toggle('active', b.getAttribute('data-speed') === '1');
+      });
+    });
+
+    root.querySelector('#btn-random-seed')?.addEventListener('click', () => {
+      const newSeed = Math.floor(Math.random() * 900000) + 100000;
+      this.scheduler.reset(newSeed);
       this.deselectEntity();
       spdBtns.forEach((b) => {
         b.classList.toggle('active', b.getAttribute('data-speed') === '1');
@@ -381,6 +395,9 @@ export class HudOverlay {
     // Top Bar Stats (Ticks only)
     const tickEl = document.getElementById('hud-tick');
     if (tickEl) tickEl.textContent = `${snapshot.tick}`;
+
+    const seedEl = document.getElementById('hud-seed');
+    if (seedEl) seedEl.textContent = `${snapshot.seed}`;
 
     const chumsEl = document.getElementById('m-chums');
     const routesEl = document.getElementById('m-routes');
