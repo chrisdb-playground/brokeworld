@@ -1,6 +1,6 @@
 ![Broke World](broke_world_title.png)
 
-# Broke World — Autonomous Smuggler Simulation
+# Broke World — A Lowlife Simulation
 
 Broke World is an autonomous, discrete-tick simulation and interactive visualizer modeling competitive migrant smuggling networks across three distinct geographical regions: North Africa, Western Europe, and the United Kingdom.
 
