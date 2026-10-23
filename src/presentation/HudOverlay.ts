@@ -37,6 +37,9 @@ export class HudOverlay {
   private selectedEntityId: string | null = null;
   private selectedGangIds: Set<string> = new Set();
   private isInfluenceVisible = true;
+  private lastInspectorKey: string | null = null;
+  private lastEventCount = -1;
+  private lastEventFirstTick = -1;
 
   // Persistent DOM cache for gang cards to prevent recreating DOM on each sim tick
   private gangCardElements: Map<string, HTMLElement> = new Map();
@@ -55,7 +58,23 @@ export class HudOverlay {
     this.onStartPlacementCallback = callbacks.onStartPlacement;
     this.onCancelPlacementCallback = callbacks.onCancelPlacement;
 
+    // Initialize with all active gangs selected so all assets are visible on launch
+    const initialSnapshot = this.port.getSnapshot();
+    if (initialSnapshot) {
+      this.currentSnapshot = initialSnapshot;
+      for (const gang of Object.values(initialSnapshot.gangs)) {
+        if (gang.status === 'ACTIVE') {
+          this.selectedGangIds.add(gang.id);
+        }
+      }
+    }
+
     this.mountDom();
+    if (this.currentSnapshot) {
+      this.update(this.currentSnapshot);
+      this.notifyGangSelection();
+    }
+
     this.port.subscribe((snapshot) => {
       this.currentSnapshot = snapshot;
       this.update(snapshot);
@@ -91,9 +110,7 @@ export class HudOverlay {
           this.selectedEntityId = nextGangId;
           this.renderInspector();
         } else {
-          this.selectedEntityType = null;
-          this.selectedEntityId = null;
-          document.getElementById('hud-inspector')?.classList.add('collapsed');
+          this.deselectEntity();
         }
       }
     } else {
@@ -119,9 +136,14 @@ export class HudOverlay {
 
   deselectAllGangs() {
     this.selectedGangIds.clear();
+    this.deselectEntity();
+    this.notifyGangSelection();
+  }
+
+  deselectEntity() {
     this.selectedEntityType = null;
     this.selectedEntityId = null;
-    this.notifyGangSelection();
+    this.lastInspectorKey = null;
     document.getElementById('hud-inspector')?.classList.add('collapsed');
   }
 
@@ -275,10 +297,37 @@ export class HudOverlay {
     });
 
     root.querySelector('#close-insp')?.addEventListener('click', () => {
-      this.selectedEntityType = null;
-      this.selectedEntityId = null;
-      document.getElementById('hud-inspector')?.classList.add('collapsed');
+      this.deselectEntity();
     });
+
+    const inspContent = root.querySelector('#insp-content');
+    if (inspContent) {
+      inspContent.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        const buildBtn = target.closest<HTMLButtonElement>('.btn-build-action');
+        if (buildBtn) {
+          e.stopPropagation();
+          const gId = buildBtn.getAttribute('data-gang-id');
+          const kind = buildBtn.getAttribute('data-kind') as LocationKind;
+          const cost = parseInt(buildBtn.getAttribute('data-cost') || '2500', 10);
+          if (gId && kind && this.onStartPlacementCallback) {
+            this.onStartPlacementCallback({ gangId: gId, kind, cost });
+          }
+          return;
+        }
+
+        const chumRow = target.closest<HTMLElement>('.chum-row-item');
+        if (chumRow) {
+          e.stopPropagation();
+          const cid = chumRow.getAttribute('data-chum-id');
+          if (cid && this.currentSnapshot) {
+            const chum = this.currentSnapshot.chumigrants[cid];
+            if (chum) this.selectChum(chum);
+          }
+          return;
+        }
+      });
+    }
   }
 
   private update(snapshot: WorldSnapshot) {
@@ -403,8 +452,21 @@ export class HudOverlay {
     const feed = document.getElementById('event-feed');
     if (!feed) return;
 
-    feed.innerHTML = '';
     const events = snapshot.events.slice(0, 30);
+    const firstEvt = events[0];
+    const firstTick = firstEvt ? firstEvt.tick : -1;
+
+    // Skip DOM recreation if no new events arrived
+    if (events.length === this.lastEventCount && firstTick === this.lastEventFirstTick) {
+      return;
+    }
+
+    this.lastEventCount = events.length;
+    this.lastEventFirstTick = firstTick;
+
+    const wasScrolledToTop = feed.scrollTop === 0;
+
+    feed.innerHTML = '';
     for (const evt of events) {
       const item = document.createElement('div');
       item.className = `event-item imp-${evt.importance.toLowerCase()}`;
@@ -414,6 +476,10 @@ export class HudOverlay {
       `;
       feed.appendChild(item);
     }
+
+    if (wasScrolledToTop) {
+      feed.scrollTop = 0;
+    }
   }
 
   private renderInspector() {
@@ -422,8 +488,27 @@ export class HudOverlay {
     const content = document.getElementById('insp-content');
     if (!card || !title || !content || !this.currentSnapshot) return;
 
+    if (!this.selectedEntityType || !this.selectedEntityId) {
+      card.classList.add('collapsed');
+      this.lastInspectorKey = null;
+      return;
+    }
+
+    const currentKey = `${this.selectedEntityType}:${this.selectedEntityId}`;
+
     card.classList.remove('collapsed');
 
+    // Only rebuild DOM template structure when the selected entity changes
+    if (this.lastInspectorKey !== currentKey) {
+      this.lastInspectorKey = currentKey;
+      this.buildInspectorStructure(title, content);
+    }
+
+    // Always update dynamic values in-place without destroying DOM elements or listeners
+    this.updateInspectorValues(content);
+  }
+
+  private buildInspectorStructure(title: HTMLElement, content: HTMLElement) {
     if (this.selectedEntityType === 'CHUM') {
       const chum = this.currentSnapshot.chumigrants[this.selectedEntityId!];
       if (!chum) return;
@@ -439,9 +524,9 @@ export class HudOverlay {
           </div>
           <div class="chum-hero-info">
             <h3>${chum.name}</h3>
-            <span class="status-pill status-${chum.status.toLowerCase()}">${chum.status}</span>
-            <div class="hero-sub">Cash: <b>$${chum.cash}</b></div>
-            <div class="hero-sub">Patience: <b>${chum.patienceRemainingTicks} ticks</b></div>
+            <span class="status-pill status-${chum.status.toLowerCase()}" id="insp-chum-status">${chum.status}</span>
+            <div class="hero-sub">Cash: <b id="insp-chum-cash">$${chum.cash}</b></div>
+            <div class="hero-sub">Patience: <b id="insp-chum-patience">${chum.patienceRemainingTicks} ticks</b></div>
           </div>
         </div>
 
@@ -456,22 +541,22 @@ export class HudOverlay {
           </div>
           <div class="insp-row">
             <span class="lbl">CURRENT NODE</span>
-            <span class="val">${origin?.name || 'Recruiter'} (${origin?.region || 'Europe'})</span>
+            <span class="val" id="insp-chum-node">${origin?.name || 'Recruiter'} (${origin?.region || 'Europe'})</span>
           </div>
           <div class="insp-row">
             <span class="lbl">RECRUITING GANG</span>
-            <span class="val" style="color: ${gang ? gang.color : '#94a3b8'}">
+            <span class="val" id="insp-chum-gang" style="color: ${gang ? gang.color : '#94a3b8'}">
               ${gang ? `${gang.emblem} ${gang.name}` : 'Waiting for passage'}
             </span>
           </div>
           <div class="insp-row">
             <span class="lbl">ASSIGNED ROUTE</span>
-            <span class="val">${chum.assignedRouteId || 'None yet'}</span>
+            <span class="val" id="insp-chum-route">${chum.assignedRouteId || 'None yet'}</span>
           </div>
         </div>
 
         <div class="insp-subhead">MIGRATION HISTORY</div>
-        <div class="history-list">
+        <div class="history-list" id="insp-chum-history">
           ${chum.history.map((h) => `<div class="history-item">${h}</div>`).join('')}
         </div>
       `;
@@ -493,25 +578,25 @@ export class HudOverlay {
       content.innerHTML = `
         <div class="gang-header-banner" style="border-left: 4px solid ${gang.color}">
           <h2 style="color: ${gang.color}">${gang.emblem} ${gang.name}</h2>
-          <span class="status-pill status-${gang.status.toLowerCase()}">${gang.status}</span>
+          <span class="status-pill status-${gang.status.toLowerCase()}" id="insp-gang-status">${gang.status}</span>
         </div>
 
         <div class="insp-grid">
           <div class="insp-row">
             <span class="lbl">REGIONAL HQS</span>
-            <span class="val" style="font-size: 11px; line-height: 1.4;">
+            <span class="val" id="insp-gang-hqs" style="font-size: 11px; line-height: 1.4;">
               ${hqs.map((h) => `• ${h.name} (${h.region})${h.isMainHq ? ' ⭐' : ''}`).join('<br>')}
             </span>
           </div>
           <div class="insp-row"><span class="lbl">WORKSHOP</span><span class="val">${ws?.name || 'Workshop'}</span></div>
-          <div class="insp-row"><span class="lbl">RECRUITERS</span><span class="val">${recruiters.join(', ') || 'None'}</span></div>
-          <div class="insp-row"><span class="lbl">DEPOTS</span><span class="val">${depots.join(', ') || 'None'}</span></div>
-          <div class="insp-row"><span class="lbl">TREASURY</span><span class="val">$${gang.cash}</span></div>
-          <div class="insp-row"><span class="lbl">REPUTATION</span><span class="val">${gang.reputation} / 100</span></div>
-          <div class="insp-row"><span class="lbl">TOTAL RECRUITS</span><span class="val">${gang.stats.recruitsTotal} Chums</span></div>
-          <div class="insp-row"><span class="lbl">SUCCESSFUL VOYAGES</span><span class="val text-green">${gang.stats.voyagesSuccessful}</span></div>
-          <div class="insp-row"><span class="lbl">DISRUPTED VOYAGES</span><span class="val text-red">${gang.stats.voyagesDisrupted}</span></div>
-          <div class="insp-row"><span class="lbl">ACTIVE ROUTES</span><span class="val">${routes.filter((r) => r.status === 'ACTIVE').length}</span></div>
+          <div class="insp-row"><span class="lbl">RECRUITERS</span><span class="val" id="insp-gang-rec-list">${recruiters.join(', ') || 'None'}</span></div>
+          <div class="insp-row"><span class="lbl">DEPOTS</span><span class="val" id="insp-gang-dep-list">${depots.join(', ') || 'None'}</span></div>
+          <div class="insp-row"><span class="lbl">TREASURY</span><span class="val" id="insp-gang-cash">$${gang.cash}</span></div>
+          <div class="insp-row"><span class="lbl">REPUTATION</span><span class="val" id="insp-gang-rep">${gang.reputation} / 100</span></div>
+          <div class="insp-row"><span class="lbl">TOTAL RECRUITS</span><span class="val" id="insp-gang-recruits">${gang.stats.recruitsTotal} Chums</span></div>
+          <div class="insp-row"><span class="lbl">SUCCESSFUL VOYAGES</span><span class="val text-green" id="insp-gang-succ">${gang.stats.voyagesSuccessful}</span></div>
+          <div class="insp-row"><span class="lbl">DISRUPTED VOYAGES</span><span class="val text-red" id="insp-gang-disr">${gang.stats.voyagesDisrupted}</span></div>
+          <div class="insp-row"><span class="lbl">ACTIVE ROUTES</span><span class="val" id="insp-gang-routes">${routes.filter((r) => r.status === 'ACTIVE').length}</span></div>
         </div>
 
         <div class="insp-subhead">PURCHASE INFRASTRUCTURE</div>
@@ -534,7 +619,7 @@ export class HudOverlay {
         </div>
 
         <div class="insp-subhead">EMPLOYED CHUM HOODS (${gangHoods.length})</div>
-        <div class="hoods-scroll-list">
+        <div class="hoods-scroll-list" id="insp-gang-hoods">
           ${gangHoods.map((h) => `
             <div class="hood-card">
               <div class="hood-card-header">
@@ -546,7 +631,7 @@ export class HudOverlay {
               </div>
               <div class="hood-task-box">
                 <span class="hood-task-dot">●</span>
-                <span class="hood-task-text">${h.currentTaskDescription}</span>
+                <span class="hood-task-text" id="hood-task-${h.id}">${h.currentTaskDescription}</span>
               </div>
             </div>
           `).join('')}
@@ -554,7 +639,7 @@ export class HudOverlay {
         </div>
 
         <div class="insp-subhead">RECENT AI DECISIONS</div>
-        <div class="history-list">
+        <div class="history-list" id="insp-gang-decisions">
           ${gang.recentDecisions.map((d) => `
             <div class="history-item">
               <b>[Tick ${d.tick}] ${d.action}:</b> ${d.reason}
@@ -562,18 +647,6 @@ export class HudOverlay {
           `).join('')}
         </div>
       `;
-
-      content.querySelectorAll<HTMLButtonElement>('.btn-build-action').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const gId = btn.getAttribute('data-gang-id');
-          const kind = btn.getAttribute('data-kind') as LocationKind;
-          const cost = parseInt(btn.getAttribute('data-cost') || '2500', 10);
-          if (gId && kind && this.onStartPlacementCallback) {
-            this.onStartPlacementCallback({ gangId: gId, kind, cost });
-          }
-        });
-      });
     } else if (this.selectedEntityType === 'LOCATION') {
       const loc = this.currentSnapshot.locations[this.selectedEntityId!];
       if (!loc) return;
@@ -609,7 +682,7 @@ export class HudOverlay {
 
         <div class="insp-grid">
           ${gang ? `<div class="insp-row"><span class="lbl">OWNING GANG</span><span class="val" style="color: ${gang.color}">${gang.emblem} ${gang.name}</span></div>` : ''}
-          <div class="insp-row"><span class="lbl">INFLUENCE HEAT</span><span class="val highlight">${heatPct}% (${multiplier}x Stats Multiplier)</span></div>
+          <div class="insp-row"><span class="lbl">INFLUENCE HEAT</span><span class="val highlight" id="insp-loc-heat">${heatPct}% (${multiplier}x Stats Multiplier)</span></div>
           ${loc.kind === 'HQ' ? `
             <div class="insp-row"><span class="lbl">HQ STATUS</span><span class="val highlight">${loc.isMainHq ? '⭐ Primary Gang HQ (Holds Reserves)' : 'Regional Command Post'}</span></div>
             <div class="insp-row"><span class="lbl">INFLUENCE ZONE</span><span class="val highlight">260px Radius (Border-Clipped)</span></div>
@@ -619,17 +692,17 @@ export class HudOverlay {
             <div class="insp-row"><span class="lbl">DUTY</span><span class="val" style="font-size: 10px; color: #cbd5e1;">${assignedHood.role.replace(/_/g, ' ')}</span></div>
           ` : ''}
           ${loc.kind === 'RECRUITER' ? `
-            <div class="insp-row"><span class="lbl">WAITING CHUMS</span><span class="val highlight">${chumsPresent.length}</span></div>
-            <div class="insp-row"><span class="lbl">OUTGOING ROUTES</span><span class="val">${outgoingRoutes.length}</span></div>
+            <div class="insp-row"><span class="lbl">WAITING CHUMS</span><span class="val highlight" id="insp-loc-waiting">${chumsPresent.length}</span></div>
+            <div class="insp-row"><span class="lbl">OUTGOING ROUTES</span><span class="val" id="insp-loc-out">${outgoingRoutes.length}</span></div>
           ` : ''}
           ${loc.kind === 'DEPOT' ? `
-            <div class="insp-row"><span class="lbl">CHUMS IN DEPOT</span><span class="val text-green">${chumsInDepot.length}</span></div>
-            <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val">${incomingRoutes.length}</span></div>
-            <div class="insp-row"><span class="lbl">OUTGOING ROUTES</span><span class="val">${outgoingRoutes.length}</span></div>
+            <div class="insp-row"><span class="lbl">CHUMS IN DEPOT</span><span class="val text-green" id="insp-loc-depot">${chumsInDepot.length}</span></div>
+            <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val" id="insp-loc-in">${incomingRoutes.length}</span></div>
+            <div class="insp-row"><span class="lbl">OUTGOING ROUTES</span><span class="val" id="insp-loc-out">${outgoingRoutes.length}</span></div>
           ` : ''}
           ${loc.kind === 'WORKSHOP' ? `
-            <div class="insp-row"><span class="lbl">CHUMS AT WORKSHOP</span><span class="val text-amber">${chumsInDepot.length}</span></div>
-            <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val">${incomingRoutes.length}</span></div>
+            <div class="insp-row"><span class="lbl">CHUMS AT WORKSHOP</span><span class="val text-amber" id="insp-loc-ws">${chumsInDepot.length}</span></div>
+            <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val" id="insp-loc-in">${incomingRoutes.length}</span></div>
           ` : ''}
         </div>
 
@@ -647,7 +720,7 @@ export class HudOverlay {
                 </div>
                 <div class="hood-task-box">
                   <span class="hood-task-dot">●</span>
-                  <span class="hood-task-text">${h.currentTaskDescription}</span>
+                  <span class="hood-task-text" id="hood-task-${h.id}">${h.currentTaskDescription}</span>
                 </div>
               </div>
             `).join('')}
@@ -657,7 +730,7 @@ export class HudOverlay {
 
         ${loc.kind === 'RECRUITER' ? `
           <div class="insp-subhead">WAITING CHUMIGRANTS (${chumsPresent.length})</div>
-          <div class="chums-scroll-list">
+          <div class="chums-scroll-list" id="insp-loc-chums-list" data-list-sig="${chumsPresent.map((c) => c.id).join(';')}">
             ${chumsPresent.map((c) => `
               <div class="chum-row-item" data-chum-id="${c.id}">
                 <div class="chum-mini-avatar">${ChumRenderer.generateSvg(c, 36)}</div>
@@ -668,12 +741,13 @@ export class HudOverlay {
                 <span class="c-status">${c.status}</span>
               </div>
             `).join('')}
+            ${chumsPresent.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No chumigrants waiting.</div>' : ''}
           </div>
         ` : ''}
 
         ${loc.kind === 'DEPOT' ? `
           <div class="insp-subhead">CHUMIGRANTS HOUSED IN DEPOT (${chumsInDepot.length})</div>
-          <div class="chums-scroll-list">
+          <div class="chums-scroll-list" id="insp-loc-chums-list" data-list-sig="${chumsInDepot.map((c) => c.id).join(';')}">
             ${chumsInDepot.map((c) => `
               <div class="chum-row-item" data-chum-id="${c.id}">
                 <div class="chum-mini-avatar">${ChumRenderer.generateSvg(c, 36)}</div>
@@ -690,7 +764,7 @@ export class HudOverlay {
 
         ${loc.kind === 'WORKSHOP' ? `
           <div class="insp-subhead">CHUMIGRANTS STATIONED AT WORKSHOP (${chumsInDepot.length})</div>
-          <div class="chums-scroll-list">
+          <div class="chums-scroll-list" id="insp-loc-chums-list" data-list-sig="${chumsInDepot.map((c) => c.id).join(';')}">
             ${chumsInDepot.map((c) => `
               <div class="chum-row-item" data-chum-id="${c.id}">
                 <div class="chum-mini-avatar">${ChumRenderer.generateSvg(c, 36)}</div>
@@ -705,14 +779,6 @@ export class HudOverlay {
           </div>
         ` : ''}
       `;
-
-      content.querySelectorAll<HTMLElement>('.chum-row-item').forEach((row) => {
-        row.addEventListener('click', () => {
-          const cid = row.getAttribute('data-chum-id');
-          const chum = this.currentSnapshot.chumigrants[cid!];
-          if (chum) this.selectChum(chum);
-        });
-      });
     } else if (this.selectedEntityType === 'ROUTE') {
       const route = this.currentSnapshot.routes[this.selectedEntityId!];
       if (!route) return;
@@ -733,10 +799,10 @@ export class HudOverlay {
           <div class="insp-row"><span class="lbl">FARE PRICE</span><span class="val highlight">$${route.price}</span></div>
           <div class="insp-row"><span class="lbl">CAPACITY</span><span class="val">${route.capacity} Chums</span></div>
           <div class="insp-row"><span class="lbl">DURATION</span><span class="val">${route.durationTicks} ticks</span></div>
-          <div class="insp-row"><span class="lbl">RELIABILITY</span><span class="val">${Math.round(route.reliability * 100)}%</span></div>
-          <div class="insp-row"><span class="lbl">TOTAL CARRIED</span><span class="val">${route.totalPassengers} Chums</span></div>
-          <div class="insp-row"><span class="lbl">TOTAL REVENUE</span><span class="val text-green">$${route.revenue}</span></div>
-          <div class="insp-row"><span class="lbl">STATUS</span><span class="val">${route.status}</span></div>
+          <div class="insp-row"><span class="lbl">RELIABILITY</span><span class="val" id="insp-route-rel">${Math.round(route.reliability * 100)}%</span></div>
+          <div class="insp-row"><span class="lbl">TOTAL CARRIED</span><span class="val" id="insp-route-carried">${route.totalPassengers} Chums</span></div>
+          <div class="insp-row"><span class="lbl">TOTAL REVENUE</span><span class="val text-green" id="insp-route-rev">$${route.revenue}</span></div>
+          <div class="insp-row"><span class="lbl">STATUS</span><span class="val" id="insp-route-status">${route.status}</span></div>
         </div>
       `;
     } else if (this.selectedEntityType === 'VOYAGE') {
@@ -757,9 +823,9 @@ export class HudOverlay {
         </div>
 
         <div class="progress-bar-wrap">
-          <div class="progress-bar-fill" style="width: ${Math.round(voyage.progress * 100)}%; background: ${gang?.color || '#38bdf8'}"></div>
+          <div class="progress-bar-fill" id="insp-voyage-bar" style="width: ${Math.round(voyage.progress * 100)}%; background: ${gang?.color || '#38bdf8'}"></div>
         </div>
-        <div class="progress-label">PROGRESS: ${Math.round(voyage.progress * 100)}%</div>
+        <div class="progress-label" id="insp-voyage-label">PROGRESS: ${Math.round(voyage.progress * 100)}%</div>
 
         ${captainHood ? `
           <div class="insp-grid" style="margin-top: 8px;">
@@ -769,7 +835,7 @@ export class HudOverlay {
             </div>
             <div class="insp-row">
               <span class="lbl">STATUS</span>
-              <span class="val" style="font-size: 10px; color: #22d3ee;">${captainHood.currentTaskDescription}</span>
+              <span class="val" id="insp-voyage-skipper-task" style="font-size: 10px; color: #22d3ee;">${captainHood.currentTaskDescription}</span>
             </div>
           </div>
         ` : ''}
@@ -785,16 +851,159 @@ export class HudOverlay {
               </div>
             </div>
           `).join('')}
+          ${passengers.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No passengers currently on board.</div>' : ''}
         </div>
       `;
+    }
+  }
 
-      content.querySelectorAll<HTMLElement>('.chum-row-item').forEach((row) => {
-        row.addEventListener('click', () => {
-          const cid = row.getAttribute('data-chum-id');
-          const chum = this.currentSnapshot.chumigrants[cid!];
-          if (chum) this.selectChum(chum);
-        });
+  private updateInspectorValues(content: HTMLElement) {
+    if (this.selectedEntityType === 'CHUM') {
+      const chum = this.currentSnapshot.chumigrants[this.selectedEntityId!];
+      if (!chum) return;
+
+      const statusEl = content.querySelector('#insp-chum-status');
+      if (statusEl) {
+        statusEl.className = `status-pill status-${chum.status.toLowerCase()}`;
+        statusEl.textContent = chum.status;
+      }
+      const cashEl = content.querySelector('#insp-chum-cash');
+      if (cashEl) cashEl.textContent = `$${chum.cash}`;
+      const patEl = content.querySelector('#insp-chum-patience');
+      if (patEl) patEl.textContent = `${chum.patienceRemainingTicks} ticks`;
+      const origin = this.currentSnapshot.locations[chum.originId];
+      const nodeEl = content.querySelector('#insp-chum-node');
+      if (nodeEl) nodeEl.textContent = `${origin?.name || 'Recruiter'} (${origin?.region || 'Europe'})`;
+      const routeEl = content.querySelector('#insp-chum-route');
+      if (routeEl) routeEl.textContent = chum.assignedRouteId || 'None yet';
+    } else if (this.selectedEntityType === 'GANG') {
+      const gang = this.currentSnapshot.gangs[this.selectedEntityId!];
+      if (!gang) return;
+
+      const routes = Object.values(this.currentSnapshot.routes).filter((r) => r.gangId === gang.id);
+      const gangHoods = Object.values(this.currentSnapshot.hoods || {}).filter((h) => h.gangId === gang.id);
+
+      const statusEl = content.querySelector('#insp-gang-status');
+      if (statusEl) {
+        statusEl.className = `status-pill status-${gang.status.toLowerCase()}`;
+        statusEl.textContent = gang.status;
+      }
+      const cashEl = content.querySelector('#insp-gang-cash');
+      if (cashEl) {
+        cashEl.className = gang.cash < 0 ? 'val text-red' : 'val text-green';
+        cashEl.textContent = `$${gang.cash}`;
+      }
+      const repEl = content.querySelector('#insp-gang-rep');
+      if (repEl) repEl.textContent = `${gang.reputation} / 100`;
+      const recEl = content.querySelector('#insp-gang-recruits');
+      if (recEl) recEl.textContent = `${gang.stats.recruitsTotal} Chums`;
+      const succEl = content.querySelector('#insp-gang-succ');
+      if (succEl) succEl.textContent = `${gang.stats.voyagesSuccessful}`;
+      const disrEl = content.querySelector('#insp-gang-disr');
+      if (disrEl) disrEl.textContent = `${gang.stats.voyagesDisrupted}`;
+      const routesEl = content.querySelector('#insp-gang-routes');
+      if (routesEl) routesEl.textContent = `${routes.filter((r) => r.status === 'ACTIVE').length}`;
+
+      for (const h of gangHoods) {
+        const taskEl = content.querySelector(`#hood-task-${h.id}`);
+        if (taskEl && taskEl.textContent !== h.currentTaskDescription) {
+          taskEl.textContent = h.currentTaskDescription;
+        }
+      }
+
+      content.querySelectorAll<HTMLButtonElement>('.btn-build-action').forEach((btn) => {
+        const cost = parseInt(btn.getAttribute('data-cost') || '0', 10);
+        if (gang.cash < cost) {
+          btn.style.opacity = '0.5';
+          btn.style.pointerEvents = 'none';
+        } else {
+          btn.style.opacity = '1';
+          btn.style.pointerEvents = 'auto';
+        }
       });
+    } else if (this.selectedEntityType === 'LOCATION') {
+      const loc = this.currentSnapshot.locations[this.selectedEntityId!];
+      if (!loc) return;
+
+      const effectiveHeat = getEffectiveInfluenceHeat(this.currentSnapshot, loc.gangId, loc.x, loc.y);
+      const heatPct = Math.round(effectiveHeat * 100);
+      const multiplier = getNodeHeatMultiplier(effectiveHeat);
+
+      const heatEl = content.querySelector('#insp-loc-heat');
+      if (heatEl) heatEl.textContent = `${heatPct}% (${multiplier}x Stats Multiplier)`;
+
+      const chumsPresent = Object.values(this.currentSnapshot.chumigrants).filter(
+        (c) => c.originId === loc.id && (c.status === 'WAITING' || c.status === 'RECRUITED')
+      );
+      const chumsInDepot = Object.values(this.currentSnapshot.chumigrants).filter(
+        (c) => c.originId === loc.id && c.status === 'ARRIVED'
+      );
+      const outgoingRoutes = Object.values(this.currentSnapshot.routes).filter(
+        (r) => r.sourceId === loc.id && r.status === 'ACTIVE'
+      );
+      const incomingRoutes = Object.values(this.currentSnapshot.routes).filter(
+        (r) => r.targetId === loc.id && r.status === 'ACTIVE'
+      );
+
+      const waitEl = content.querySelector('#insp-loc-waiting');
+      if (waitEl) waitEl.textContent = `${chumsPresent.length}`;
+      const depotEl = content.querySelector('#insp-loc-depot');
+      if (depotEl) depotEl.textContent = `${chumsInDepot.length}`;
+      const wsEl = content.querySelector('#insp-loc-ws');
+      if (wsEl) wsEl.textContent = `${chumsInDepot.length}`;
+      const outEl = content.querySelector('#insp-loc-out');
+      if (outEl) outEl.textContent = `${outgoingRoutes.length}`;
+      const inEl = content.querySelector('#insp-loc-in');
+      if (inEl) inEl.textContent = `${incomingRoutes.length}`;
+
+      const chumsListEl = content.querySelector('#insp-loc-chums-list');
+      if (chumsListEl) {
+        const targetChums = loc.kind === 'RECRUITER' ? chumsPresent : chumsInDepot;
+        const currentListKey = chumsListEl.getAttribute('data-list-sig');
+        const newListKey = targetChums.map((c) => `${c.id}:${c.status}`).join(';');
+        if (currentListKey !== newListKey) {
+          chumsListEl.setAttribute('data-list-sig', newListKey);
+          chumsListEl.innerHTML = targetChums.map((c) => `
+            <div class="chum-row-item" data-chum-id="${c.id}">
+              <div class="chum-mini-avatar">${ChumRenderer.generateSvg(c, 36)}</div>
+              <div class="chum-mini-info">
+                <div class="c-name">${c.name} (${c.originName})</div>
+                <div class="c-dest">${loc.kind === 'RECRUITER' ? `Destination: <b>${c.desiredRegion}</b>` : `Status: <b class="text-green">Housed in Depot</b>`}</div>
+              </div>
+              <span class="c-status">${c.status}</span>
+            </div>
+          `).join('');
+          if (targetChums.length === 0) {
+            chumsListEl.innerHTML = '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No chumigrants here currently.</div>';
+          }
+        }
+      }
+    } else if (this.selectedEntityType === 'ROUTE') {
+      const route = this.currentSnapshot.routes[this.selectedEntityId!];
+      if (!route) return;
+
+      const relEl = content.querySelector('#insp-route-rel');
+      if (relEl) relEl.textContent = `${Math.round(route.reliability * 100)}%`;
+      const carEl = content.querySelector('#insp-route-carried');
+      if (carEl) carEl.textContent = `${route.totalPassengers} Chums`;
+      const revEl = content.querySelector('#insp-route-rev');
+      if (revEl) revEl.textContent = `$${route.revenue}`;
+      const statEl = content.querySelector('#insp-route-status');
+      if (statEl) statEl.textContent = route.status;
+    } else if (this.selectedEntityType === 'VOYAGE') {
+      const voyage = this.currentSnapshot.voyages[this.selectedEntityId!];
+      if (!voyage) return;
+
+      const pct = Math.round(voyage.progress * 100);
+      const barEl = content.querySelector('#insp-voyage-bar') as HTMLElement;
+      if (barEl) barEl.style.width = `${pct}%`;
+      const lblEl = content.querySelector('#insp-voyage-label');
+      if (lblEl) lblEl.textContent = `PROGRESS: ${pct}%`;
+      const skipperEl = content.querySelector('#insp-voyage-skipper-task');
+      if (skipperEl && voyage.captainHoodId) {
+        const hood = this.currentSnapshot.hoods[voyage.captainHoodId];
+        if (hood) skipperEl.textContent = hood.currentTaskDescription;
+      }
     }
   }
 }

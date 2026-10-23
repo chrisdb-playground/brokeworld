@@ -477,6 +477,19 @@ body, html {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  user-select: text;
+}
+
+.hud-inspector-card,
+.event-feed-list,
+.gang-card,
+.metric-item,
+.tick-chip {
+  user-select: text;
+}
+
+button, .spd-btn, .btn-gang-action, .btn-build-action, .btn-close {
+  user-select: none;
 }
 
 /* Chum Hero Box */

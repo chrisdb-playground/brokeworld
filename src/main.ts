@@ -50,7 +50,7 @@ game.events.once('ready', () => {
     onSelectLocation: (loc) => hudOverlay.selectLocation(loc),
     onSelectRoute: (route) => hudOverlay.selectRoute(route),
     onSelectVoyage: (voyage) => hudOverlay.selectVoyage(voyage),
-    onDeselectAll: () => hudOverlay.deselectGang(),
+    onDeselectAll: () => hudOverlay.deselectEntity(),
     onCancelPlacement: () => {
       // Clean up any UI placement states if needed
     },

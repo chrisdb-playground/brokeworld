@@ -70,6 +70,9 @@ export class ChumScene extends Phaser.Scene {
   private selectedGangIds: Set<string> = new Set();
   private selectedRouteId: string | null = null;
   private selectedLocationId: string | null = null;
+  private selectedVoyageId: string | null = null;
+  private justSelectedInteractiveObject = false;
+  private lastHqSignature = '';
 
   constructor() {
     super('ChumScene');
@@ -85,6 +88,13 @@ export class ChumScene extends Phaser.Scene {
     if (data?.port) this.port = data.port;
     if (data?.events) this.eventsHandler = data.events;
     this.currentSnapshot = this.port.getSnapshot();
+
+    // Default: select all active gangs so all nodes and routes are immediately visible
+    for (const gang of Object.values(this.currentSnapshot.gangs)) {
+      if (gang.status === 'ACTIVE') {
+        this.selectedGangIds.add(gang.id);
+      }
+    }
   }
 
   preload() {
@@ -203,7 +213,8 @@ export class ChumScene extends Phaser.Scene {
     this.cameras.main.centerOn(600, 370);
     this.cameras.main.setZoom(0.92);
 
-    // Initial render
+    // Initial render (backdrop once, then dynamic layers)
+    this.renderRegionsBackdrop();
     this.renderWorld(this.currentSnapshot);
   }
 
@@ -295,6 +306,12 @@ export class ChumScene extends Phaser.Scene {
     this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
       this.isDragging = false;
 
+      // If an interactive object (location, route, vehicle) was just clicked, do not deselect
+      if (this.justSelectedInteractiveObject) {
+        this.justSelectedInteractiveObject = false;
+        return;
+      }
+
       const moved = Math.hypot(pointer.x - pointerDownPos.x, pointer.y - pointerDownPos.y);
 
       // Handle interactive placement click
@@ -303,15 +320,15 @@ export class ChumScene extends Phaser.Scene {
         return;
       }
 
-      // Click on empty ground deselects all gangs and hides everything
+      // Click on empty ground deselects current inspected entity (does NOT hide all gangs)
       const duration = Date.now() - pointerDownTime;
       if (moved < 5 && duration < 300) {
-        const hitObjects = this.input.hitTestPointer(pointer);
-        if (hitObjects.length === 0) {
-          this.setSelectedGangs(new Set());
-          if (this.eventsHandler.onDeselectAll) {
-            this.eventsHandler.onDeselectAll();
-          }
+        this.selectedLocationId = null;
+        this.selectedRouteId = null;
+        this.selectedVoyageId = null;
+        this.renderWorld(this.currentSnapshot);
+        if (this.eventsHandler.onDeselectAll) {
+          this.eventsHandler.onDeselectAll();
         }
       }
     });
@@ -334,6 +351,7 @@ export class ChumScene extends Phaser.Scene {
 
   toggleInfluence(): boolean {
     this.isInfluenceZoneVisible = !this.isInfluenceZoneVisible;
+    this.lastHqSignature = '';
     this.renderWorld(this.currentSnapshot);
     if (this.eventsHandler.onInfluenceToggled) {
       this.eventsHandler.onInfluenceToggled(this.isInfluenceZoneVisible);
@@ -343,6 +361,7 @@ export class ChumScene extends Phaser.Scene {
 
   setInfluenceVisible(visible: boolean): void {
     this.isInfluenceZoneVisible = visible;
+    this.lastHqSignature = '';
     this.renderWorld(this.currentSnapshot);
     if (this.eventsHandler.onInfluenceToggled) {
       this.eventsHandler.onInfluenceToggled(this.isInfluenceZoneVisible);
@@ -464,6 +483,7 @@ export class ChumScene extends Phaser.Scene {
   setSelectedGangs(gangIds: Set<string>) {
     this.selectedGangIds = new Set(gangIds);
     this.selectedRouteId = null;
+    this.lastHqSignature = '';
     this.renderWorld(this.currentSnapshot);
   }
 
@@ -474,6 +494,7 @@ export class ChumScene extends Phaser.Scene {
       this.selectedGangIds = new Set([gangId]);
     }
     this.selectedRouteId = null;
+    this.lastHqSignature = '';
     this.renderWorld(this.currentSnapshot);
   }
 
@@ -484,6 +505,7 @@ export class ChumScene extends Phaser.Scene {
       this.selectedGangIds.add(gangId);
     }
     this.selectedRouteId = null;
+    this.lastHqSignature = '';
     this.renderWorld(this.currentSnapshot);
   }
 
@@ -500,7 +522,6 @@ export class ChumScene extends Phaser.Scene {
 
   // ==================== RENDERING PIPELINE ====================
   renderWorld(snapshot: WorldSnapshot) {
-    this.renderRegionsBackdrop(snapshot);
     this.renderInfluenceHeatmap(snapshot);
     this.renderPhysicalConnections(snapshot);
     this.renderLocations(snapshot);
@@ -509,6 +530,14 @@ export class ChumScene extends Phaser.Scene {
   }
 
   private renderInfluenceHeatmap(snapshot: WorldSnapshot) {
+    const hqs = Object.values(snapshot.locations).filter((l) => l.kind === 'HQ');
+    const hqSig = `${this.isInfluenceZoneVisible}|${Array.from(this.selectedGangIds).sort().join(',')}|${hqs.map((h) => `${h.id}:${h.x}:${h.y}:${h.gangId}`).sort().join(';')}`;
+
+    if (hqSig === this.lastHqSignature) {
+      return;
+    }
+    this.lastHqSignature = hqSig;
+
     this.influenceGfxUk.clear();
     this.influenceGfxEur.clear();
     this.influenceGfxAfr.clear();
@@ -570,7 +599,7 @@ export class ChumScene extends Phaser.Scene {
     }
   }
 
-  private renderRegionsBackdrop(_snapshot: WorldSnapshot) {
+  private renderRegionsBackdrop(_snapshot?: WorldSnapshot) {
     const gfx = this.bgGfx;
     gfx.clear();
 
@@ -778,18 +807,22 @@ export class ChumScene extends Phaser.Scene {
     const hitZone = this.add.zone(0, 0, 76, 76);
     hitZone.setInteractive({ cursor: 'pointer' });
     hitZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      pointer.event.stopPropagation();
-      this.selectedLocationId = loc.id;
-      if (loc.gangId) {
-        this.selectedGangIds.add(loc.gangId);
+      if (pointer.leftButtonDown()) {
+        this.justSelectedInteractiveObject = true;
+        this.selectedLocationId = loc.id;
+        this.selectedRouteId = null;
+        this.selectedVoyageId = null;
+        if (loc.gangId) {
+          this.selectedGangIds.add(loc.gangId);
+        }
         this.renderWorld(this.currentSnapshot);
         const gang = this.currentSnapshot.gangs[loc.gangId];
         if (gang && this.eventsHandler.onSelectGang) {
           this.eventsHandler.onSelectGang(gang, this.currentSnapshot);
         }
-      }
-      if (this.eventsHandler.onSelectLocation) {
-        this.eventsHandler.onSelectLocation(loc, this.currentSnapshot);
+        if (this.eventsHandler.onSelectLocation) {
+          this.eventsHandler.onSelectLocation(loc, this.currentSnapshot);
+        }
       }
     });
     container.add(hitZone);
@@ -811,13 +844,23 @@ export class ChumScene extends Phaser.Scene {
     baseGfx.clear();
     badgeGfx.clear();
 
+    const isSelected = this.selectedLocationId === loc.id;
     const gang = snapshot.gangs[loc.gangId];
     const strokeColor = gang ? gang.colorNum : 0x475569;
 
     baseGfx.fillStyle(0x0f172a, 0.95);
     baseGfx.fillRoundedRect(-36, -36, 72, 72, 8);
-    baseGfx.lineStyle(2, strokeColor, 0.9);
-    baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
+
+    if (isSelected) {
+      // High-contrast gold halo for selected node
+      baseGfx.lineStyle(4, 0xfacc15, 1.0);
+      baseGfx.strokeRoundedRect(-41, -41, 82, 82, 10);
+      baseGfx.lineStyle(2, 0xffffff, 1.0);
+      baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
+    } else {
+      baseGfx.lineStyle(2, strokeColor, 0.9);
+      baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
+    }
 
     if (loc.kind === 'HQ' && gang) {
       badgeGfx.fillStyle(gang.colorNum, 1);
@@ -928,11 +971,17 @@ export class ChumScene extends Phaser.Scene {
       const gang = snapshot.gangs[route.gangId];
       const isSelected = this.selectedRouteId === route.id;
       const color = gang ? gang.colorNum : 0x38bdf8;
-      const alpha = isSelected ? 1.0 : 0.9;
-      const lineWidth = isSelected ? 4.5 : 3.0;
 
-      gfx.lineStyle(lineWidth, color, alpha);
-      gfx.lineBetween(src.x, src.y, tgt.x, tgt.y);
+      if (isSelected) {
+        // High-contrast gold halo under selected route
+        gfx.lineStyle(7, 0xfacc15, 0.85);
+        gfx.lineBetween(src.x, src.y, tgt.x, tgt.y);
+        gfx.lineStyle(3.5, 0xffffff, 1.0);
+        gfx.lineBetween(src.x, src.y, tgt.x, tgt.y);
+      } else {
+        gfx.lineStyle(3.0, color, 0.9);
+        gfx.lineBetween(src.x, src.y, tgt.x, tgt.y);
+      }
 
       // Direction Arrow in middle
       const midX = (src.x + tgt.x) / 2;
@@ -940,7 +989,7 @@ export class ChumScene extends Phaser.Scene {
       const arrowAngle = Math.atan2(dy, dx);
       const arrowLen = 8;
 
-      gfx.lineStyle(2, color, alpha);
+      gfx.lineStyle(2, isSelected ? 0xffffff : color, 1.0);
       gfx.beginPath();
       gfx.moveTo(midX, midY);
       gfx.lineTo(
@@ -957,22 +1006,29 @@ export class ChumScene extends Phaser.Scene {
       // Hit zone
       let zone = this.routeHitZones.get(route.id);
       if (!zone) {
-        zone = this.add.zone(midX, midY, Math.max(dist, 40), 16);
+        zone = this.add.zone(midX, midY, Math.max(dist, 40), 24);
         zone.setRotation(arrowAngle);
         zone.setInteractive({ cursor: 'pointer' });
         zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-          pointer.event.stopPropagation();
-          this.selectedRouteId = route.id;
-          this.renderWorld(this.currentSnapshot);
-          if (this.eventsHandler.onSelectRoute) {
-            this.eventsHandler.onSelectRoute(route, this.currentSnapshot);
+          if (pointer.leftButtonDown()) {
+            this.justSelectedInteractiveObject = true;
+            this.selectedRouteId = route.id;
+            this.selectedLocationId = null;
+            this.selectedVoyageId = null;
+            this.renderWorld(this.currentSnapshot);
+            if (this.eventsHandler.onSelectRoute) {
+              this.eventsHandler.onSelectRoute(route, this.currentSnapshot);
+            }
           }
         });
         this.routeHitZones.set(route.id, zone);
       } else {
         zone.setPosition(midX, midY);
         zone.setRotation(arrowAngle);
-        zone.setSize(dist, 16);
+        zone.setSize(Math.max(dist, 40), 24);
+        if (zone.input && zone.input.hitArea) {
+          (zone.input.hitArea as Phaser.Geom.Rectangle).setTo(0, 0, Math.max(dist, 40), 24);
+        }
       }
     }
   }
@@ -1032,6 +1088,15 @@ export class ChumScene extends Phaser.Scene {
         body.setRotation(angle);
       }
 
+      const selectGfx = container.getByName('selectGfx') as Phaser.GameObjects.Graphics;
+      if (selectGfx) {
+        selectGfx.clear();
+        if (this.selectedVoyageId === voyage.id) {
+          selectGfx.lineStyle(2.5, 0xfacc15, 1.0);
+          selectGfx.strokeCircle(0, 0, 18);
+        }
+      }
+
       const badge = container.getByName('passengerBadge') as Phaser.GameObjects.Text;
       if (badge) {
         badge.setText(`×${voyage.passengerIds.length}`);
@@ -1041,6 +1106,10 @@ export class ChumScene extends Phaser.Scene {
 
   private createVehicleSprite(voyage: VoyageState, gang?: GangState): Phaser.GameObjects.Container {
     const container = this.add.container(0, 0);
+
+    const selectGfx = this.add.graphics();
+    selectGfx.setName('selectGfx');
+    container.add(selectGfx);
 
     const gfx = this.add.graphics();
     gfx.setName('vehicleBody');
@@ -1087,12 +1156,18 @@ export class ChumScene extends Phaser.Scene {
     badge.setResolution(2);
     container.add(badge);
 
-    const hit = this.add.zone(0, 0, 26, 26);
+    const hit = this.add.zone(0, 0, 32, 32);
     hit.setInteractive({ cursor: 'pointer' });
     hit.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      pointer.event.stopPropagation();
-      if (this.eventsHandler.onSelectVoyage) {
-        this.eventsHandler.onSelectVoyage(voyage, this.currentSnapshot);
+      if (pointer.leftButtonDown()) {
+        this.justSelectedInteractiveObject = true;
+        this.selectedVoyageId = voyage.id;
+        this.selectedLocationId = null;
+        this.selectedRouteId = null;
+        this.renderWorld(this.currentSnapshot);
+        if (this.eventsHandler.onSelectVoyage) {
+          this.eventsHandler.onSelectVoyage(voyage, this.currentSnapshot);
+        }
       }
     });
     container.add(hit);
