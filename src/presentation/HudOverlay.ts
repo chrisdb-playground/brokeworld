@@ -194,6 +194,7 @@ export class HudOverlay {
             <button class="spd-btn" data-speed="5">5×</button>
             <button class="spd-btn" data-speed="20">20×</button>
             <button class="spd-btn" id="btn-step">⏯ Step</button>
+            <button class="spd-btn" id="btn-reset" title="Reset Simulation (R)">🔄 Reset</button>
             <button class="spd-btn active" id="btn-toggle-influence" title="Toggle HQ Influence Zones (I)">🔥 Influence</button>
           </div>
         </div>
@@ -267,6 +268,14 @@ export class HudOverlay {
 
     root.querySelector('#btn-step')?.addEventListener('click', () => {
       this.scheduler.step();
+    });
+
+    root.querySelector('#btn-reset')?.addEventListener('click', () => {
+      this.scheduler.reset();
+      this.deselectEntity();
+      spdBtns.forEach((b) => {
+        b.classList.toggle('active', b.getAttribute('data-speed') === '1');
+      });
     });
 
     const toggleInfluenceAction = () => {

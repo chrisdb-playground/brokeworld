@@ -337,6 +337,13 @@ export class ChumScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-ESC', () => {
       this.cancelPlacementMode();
     });
+    this.input.keyboard?.on('keydown-R', () => {
+      scheduler.reset();
+      const spdBtns = document.querySelectorAll<HTMLButtonElement>('.spd-btn[data-speed]');
+      spdBtns.forEach((b) => {
+        b.classList.toggle('active', b.getAttribute('data-speed') === '1');
+      });
+    });
 
     // Subscribe to simulation updates
     this.port.subscribe((snapshot) => {
@@ -729,6 +736,13 @@ export class ChumScene extends Phaser.Scene {
     if (!this.isSceneReady || !this.bgGfx || !this.influenceGfxUk || !this.nodesContainer) {
       return;
     }
+    if (snapshot.tick === 0) {
+      this.lastHqSignature = '';
+      this.cancelPlacementMode();
+      this.selectedVoyageId = null;
+      this.selectedRouteId = null;
+      this.selectedLocationId = null;
+    }
     this.renderInfluenceHeatmap(snapshot);
     this.renderPhysicalConnections(snapshot);
     this.renderLocations(snapshot);
@@ -978,6 +992,14 @@ export class ChumScene extends Phaser.Scene {
    * "for gangs- i should be able to select the gang to see the gang's stuff, deselect to hide everything."
    */
   private renderLocations(snapshot: WorldSnapshot) {
+    const currentLocIds = new Set(Object.keys(snapshot.locations));
+    for (const [id, container] of this.locationContainers.entries()) {
+      if (!currentLocIds.has(id)) {
+        container.destroy();
+        this.locationContainers.delete(id);
+      }
+    }
+
     for (const loc of Object.values(snapshot.locations)) {
       let container = this.locationContainers.get(loc.id);
       if (!container) {

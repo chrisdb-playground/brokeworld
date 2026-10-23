@@ -22,6 +22,12 @@ export class TickScheduler {
     this.port.advance(1);
   }
 
+  reset(seed?: number): void {
+    this.accumulatorMs = 0;
+    this.timeScale = 1.0;
+    this.port.reset(seed);
+  }
+
   update(deltaMs: number): void {
     if (this.timeScale <= 0) return;
 
