@@ -163,14 +163,6 @@ export function processGangAI(
     for (const synd of backupSyndicates) {
       if (!state.gangs[synd.id] || state.gangs[synd.id].status !== 'ACTIVE') {
         const hqId = `HQ_${synd.id}`;
-        const wsId = `WORKSHOP_${synd.id}`;
-        const recAfrId = `REC_${synd.id}_AFRICA`;
-        const depotEurId = `DEPOT_${synd.id}_EUROPE`;
-        const recEurId = `REC_${synd.id}_EUROPE`;
-        const depotUkId = `DEPOT_${synd.id}_UK`;
-
-        const hqAfrId = `HQ_${synd.id}_AFRICA`;
-        const hqUkId = `HQ_${synd.id}_UK`;
 
         state.locations[hqId] = {
           id: hqId,
@@ -183,92 +175,8 @@ export function processGangAI(
           kind: 'HQ',
           gangId: synd.id,
           isMainHq: true,
-        };
-
-        state.locations[hqAfrId] = {
-          id: hqAfrId,
-          name: `${synd.name} Africa HQ`,
-          region: 'AFRICA',
-          x: synd.xOff + 80,
-          y: 1000,
-          tileFamily: 'logistics-hub',
-          tileVariant: 'mk1',
-          kind: 'HQ',
-          gangId: synd.id,
-          isMainHq: false,
-        };
-
-        state.locations[hqUkId] = {
-          id: hqUkId,
-          name: `${synd.name} UK HQ`,
-          region: 'UK',
-          x: synd.xOff - 20,
-          y: 70,
-          tileFamily: 'logistics-hub',
-          tileVariant: 'mk1',
-          kind: 'HQ',
-          gangId: synd.id,
-          isMainHq: false,
-        };
-
-        state.locations[wsId] = {
-          id: wsId,
-          name: `${synd.name} Workshop`,
-          region: 'EUROPE',
-          x: synd.xOff - 80,
-          y: 510,
-          tileFamily: 'industrial-press',
-          tileVariant: 'mk1-north',
-          kind: 'WORKSHOP',
-          gangId: synd.id,
-        };
-
-        state.locations[recAfrId] = {
-          id: recAfrId,
-          name: `${synd.name} Africa Recruiter`,
-          region: 'AFRICA',
-          x: synd.xOff,
-          y: 930,
-          tileFamily: 'crusher',
-          tileVariant: 'mk3',
-          kind: 'RECRUITER',
-          gangId: synd.id,
-        };
-
-        state.locations[depotEurId] = {
-          id: depotEurId,
-          name: `${synd.name} Europe Depot`,
-          region: 'EUROPE',
-          x: synd.xOff + 20,
-          y: 590,
-          tileFamily: 'pressure-tank',
-          tileVariant: 'mk1-north',
-          kind: 'DEPOT',
-          gangId: synd.id,
-        };
-
-        state.locations[recEurId] = {
-          id: recEurId,
-          name: `${synd.name} Europe Recruiter`,
-          region: 'EUROPE',
-          x: synd.xOff + 120,
-          y: 350,
-          tileFamily: 'crusher',
-          tileVariant: 'mk3',
-          kind: 'RECRUITER',
-          gangId: synd.id,
-        };
-
-        state.locations[depotUkId] = {
-          id: depotUkId,
-          name: `${synd.name} UK Depot`,
-          region: 'UK',
-          x: synd.xOff + 100,
-          y: 70,
-          tileFamily: 'pressure-tank',
-          tileVariant: 'mk1-north',
-          kind: 'DEPOT',
-          gangId: synd.id,
+          operationalStatus: 'ACTIVE',
+          influenceRadius: 220,
         };
 
         state.gangs[synd.id] = {
@@ -279,59 +187,34 @@ export function processGangAI(
           emblem: synd.emblem,
           hqLocationId: hqId,
           mainHqLocationId: hqId,
-          hqLocationIds: [hqId, hqAfrId, hqUkId],
-          workshopLocationId: wsId,
-          recruiterLocationIds: [recAfrId, recEurId],
-          depotLocationIds: [depotEurId, depotUkId],
-          cash: 18000,
+          hqLocationIds: [hqId],
+          workshopLocationId: undefined,
+          recruiterLocationIds: [],
+          depotLocationIds: [],
+          cash: 10000,
           reputation: 75,
           status: 'ACTIVE',
-          recentDecisions: [{ tick: state.tick, action: 'FOUND_GANG', reason: 'Formed complete 3-region network with regional HQs.' }],
+          discoveredNodeIds: [],
+          discoveredRouteIds: [],
+          wageBillTotal: 30,
+          recentDecisions: [{ tick: state.tick, action: 'FOUND_GANG', reason: 'Chartered syndicate with European Main HQ.' }],
           stats: { recruitsTotal: 0, voyagesLaunched: 0, voyagesSuccessful: 0, voyagesDisrupted: 0, revenueTotal: 0 },
         };
 
-        // Routes: Africa -> Europe, Europe -> UK
-        const routesToCreate = [
-          { rId: `ROUTE_${synd.id}_AFR_EUR`, cId: `CONN_${recAfrId}_${depotEurId}`, src: recAfrId, tgt: depotEurId },
-          { rId: `ROUTE_${synd.id}_EUR_UK`, cId: `CONN_${recEurId}_${depotUkId}`, src: recEurId, tgt: depotUkId },
-        ];
-
-        for (const rc of routesToCreate) {
-          state.connections[rc.cId] = {
-            id: rc.cId,
-            sourceId: rc.src,
-            targetId: rc.tgt,
-            isCrossBorder: true,
-            distance: 350,
-            mode: 'SEA',
-          };
-
-          state.routes[rc.rId] = {
-            id: rc.rId,
-            gangId: synd.id,
-            connectionId: rc.cId,
-            sourceId: rc.src,
-            targetId: rc.tgt,
-            mode: 'BOAT',
-            capacity: 5,
-            price: 320,
-            durationTicks: 65,
-            reliability: 0.97,
-            status: 'ACTIVE',
-            totalPassengers: 0,
-            revenue: 0,
-            activeVoyageCount: 0,
-          };
-          state.stats.totalActiveRoutes++;
-        }
-
-        // Staff newly founded syndicate with Hoods
-        ensureGangNodesStaffed(state, state.gangs[synd.id], prng, events);
+        // Staff starting Main HQ with HQ Boss, and hire 1 starter Scout Hood
         hireHood(
           state,
           synd.id,
-          'STANDBY',
-          { type: 'IDLE_HQ', targetId: hqId, role: 'STANDBY' },
+          'HQ_BOSS',
+          { type: 'MANAGE_NODE', targetId: hqId, role: 'HQ_BOSS' },
+          prng,
+          events
+        );
+        hireHood(
+          state,
+          synd.id,
+          'SCOUT',
+          { type: 'SCOUT_ZONE', targetId: hqId, role: 'SCOUT' },
           prng,
           events
         );
@@ -340,7 +223,7 @@ export function processGangAI(
           id: `EVT_FOUND_${synd.id}_${state.tick}`,
           tick: state.tick,
           type: 'GANG_FOUNDED',
-          description: `${synd.name} formed with complete 3-region network!`,
+          description: `${synd.name} chartered with single European Main HQ to build up gradually.`,
           importance: 'HIGH',
           gangId: synd.id,
         });

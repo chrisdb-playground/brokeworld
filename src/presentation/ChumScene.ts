@@ -1009,9 +1009,16 @@ export class ChumScene extends Phaser.Scene {
       }
 
       // Visibility Rule:
-      // Show nodes owned by ANY currently selected gang, or unowned candidate nodes
-      const isVisible = loc.gangId === 'NEUTRAL' || this.selectedGangIds.has(loc.gangId);
+      // "make unowned nodes not visible"
+      // Unowned / candidate nodes are not visible. Only show owned nodes of currently selected gangs.
+      const isOwned = loc.gangId !== 'NEUTRAL' && loc.operationalStatus !== 'DISCOVERED_CANDIDATE';
+      const isVisible = isOwned && this.selectedGangIds.has(loc.gangId);
       container.setVisible(isVisible);
+
+      const hitZone = container.list.find((obj) => obj instanceof Phaser.GameObjects.Zone) as Phaser.GameObjects.Zone | undefined;
+      if (hitZone && hitZone.input) {
+        hitZone.input.enabled = isVisible;
+      }
 
       if (isVisible) {
         this.updateLocationNode(container, loc, snapshot);
