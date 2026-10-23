@@ -201,12 +201,12 @@ describe('Chum World Simulation Core', () => {
     const prng = createPrng(999);
     const state = createInitialWorld(prng);
 
-    // Gangs start with 2 HQs + 1 Scout = 3 hoods per gang (9 total)
-    expect(Object.keys(state.hoods).length).toBe(9);
+    // Gangs start with 1 Main HQ + 1 Scout = 2 hoods per gang (6 total)
+    expect(Object.keys(state.hoods).length).toBe(6);
 
     for (const gang of Object.values(state.gangs)) {
       const gangHoods = Object.values(state.hoods).filter((h) => h.gangId === gang.id);
-      expect(gangHoods.length).toBe(3);
+      expect(gangHoods.length).toBe(2);
 
       // Check HQ has an assigned boss Hood
       const hq = state.locations[gang.hqLocationId];

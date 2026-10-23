@@ -58,53 +58,95 @@ export function processGangAI(
       continue;
     }
 
-    // 4. Purchase Discovered Candidate Nodes
-    // Priority order: Recruiter -> Depot -> Workshop -> Regional HQ
+    // 4. Purchase Discovered Cross-Border Routes (Top Priority: Primary Revenue Generator!)
+    const activeGangRoutes = Object.values(state.routes).filter(
+      (r) => r.gangId === gang.id && r.status === 'ACTIVE' && r.isCrossBorder
+    );
+    if (gang.discoveredRouteIds && gang.discoveredRouteIds.length > 0) {
+      const routeConnKey = gang.discoveredRouteIds[0];
+      if (gang.cash >= 1000) {
+        const parts = routeConnKey.replace('CONN__', '').replace('CONN_', '').split('__');
+        if (parts.length === 2) {
+          const [recId, depotId] = parts;
+          const rec = state.locations[recId];
+          const depot = state.locations[depotId];
+
+          if (rec && depot && rec.gangId === gang.id && depot.gangId === gang.id && rec.region !== depot.region) {
+            try {
+              executePurchaseBorderRoute(state, gang.id, rec.id, depot.id, prng, events);
+              addDecision(gang, state.tick, 'PURCHASE_ROUTE', `Established cross-border route from ${rec.name} to ${depot.name}.`);
+            } catch {
+              gang.discoveredRouteIds = gang.discoveredRouteIds.filter((k) => k !== routeConnKey);
+            }
+          } else {
+            gang.discoveredRouteIds = gang.discoveredRouteIds.filter((k) => k !== routeConnKey);
+          }
+        } else {
+          gang.discoveredRouteIds = gang.discoveredRouteIds.filter((k) => k !== routeConnKey);
+        }
+      }
+    }
+
+    // 5. Purchase Discovered Candidate Nodes
+    // Strategic priority order: Home Recruiter -> Cross-region Forward HQ -> Destination Depot -> Intra-region nodes -> Workshop
     if (gang.discoveredNodeIds && gang.discoveredNodeIds.length > 0) {
       const candidates = gang.discoveredNodeIds
         .map((id) => state.locations[id])
         .filter((loc) => loc && loc.operationalStatus === 'DISCOVERED_CANDIDATE');
 
-      // Sort by strategic priority
-      const kindPriority: Record<string, number> = {
-        RECRUITER: (gang.recruiterLocationIds || []).length === 0 ? 1 : 3,
-        DEPOT: (gang.depotLocationIds || []).length === 0 ? 2 : 4,
-        WORKSHOP: !gang.workshopLocationId ? 5 : 8,
-        HQ: 6,
+      const ownHqs = (gang.hqLocationIds || []).map((id) => state.locations[id]).filter(Boolean);
+      const ownRegions = new Set(ownHqs.map((h) => h.region));
+      const recCount = (gang.recruiterLocationIds || []).length;
+      const depCount = (gang.depotLocationIds || []).length;
+      const hasRoute = activeGangRoutes.length > 0;
+
+      const getPriority = (cand: typeof candidates[0]): number => {
+        // 1. First Recruiter in home region
+        if (cand.kind === 'RECRUITER' && recCount === 0) return 1;
+
+        // 2. Cross-region Forward HQ to expand influence across the border
+        if (cand.kind === 'HQ' && !ownRegions.has(cand.region)) {
+          // If we already have 2 regions, wait until we have an active route before expanding to a 3rd
+          if (ownRegions.size >= 2 && !hasRoute) return 8;
+          return recCount > 0 ? 2 : 4;
+        }
+
+        // 3. Depot in destination region (different region than home recruiter)
+        if (cand.kind === 'DEPOT') {
+          const hasCrossRec = (gang.recruiterLocationIds || []).some(
+            (id) => state.locations[id]?.region !== cand.region
+          );
+          if (hasCrossRec) return 2;
+          return depCount === 0 ? 3 : 6;
+        }
+
+        // 4. Secondary Recruiter
+        if (cand.kind === 'RECRUITER') return 5;
+
+        // 5. Workshop
+        if (cand.kind === 'WORKSHOP') return !gang.workshopLocationId ? 7 : 9;
+
+        // 6. Same-region HQ synergy
+        if (cand.kind === 'HQ') return 8;
+
+        return 10;
       };
 
-      candidates.sort((a, b) => (kindPriority[a.kind] || 9) - (kindPriority[b.kind] || 9));
+      candidates.sort((a, b) => getPriority(a) - getPriority(b));
+
+      // Always reserve money to purchase discovered routes if available
+      const routeReserve = (gang.discoveredRouteIds && gang.discoveredRouteIds.length > 0) ? 1000 : 0;
+      const safetyReserve = routeReserve + 300;
 
       for (const cand of candidates) {
-        const cost = cand.candidateCost || (cand.kind === 'HQ' ? 3500 : (cand.kind === 'WORKSHOP' ? 2500 : (cand.kind === 'DEPOT' ? 1500 : 1800)));
-        // Retain $500 safety reserve for payroll
-        if (gang.cash >= cost + 500) {
+        const cost = cand.candidateCost || (cand.kind === 'HQ' ? 2200 : (cand.kind === 'WORKSHOP' ? 2000 : (cand.kind === 'DEPOT' ? 1200 : 1500)));
+        if (gang.cash >= cost + safetyReserve) {
           try {
             executeClaimCandidateNode(state, gang.id, cand.id, prng, events);
             addDecision(gang, state.tick, `PURCHASE_${cand.kind}`, `Acquired ${cand.name} in ${cand.region} ($${cost}).`);
             break; // One purchase per cycle to stagger growth
           } catch {
             // Insufficient funds or invalid
-          }
-        }
-      }
-    }
-
-    // 5. Purchase Discovered Cross-Border Routes
-    if (gang.discoveredRouteIds && gang.discoveredRouteIds.length > 0 && gang.cash >= 1600) {
-      const routeConnKey = gang.discoveredRouteIds[0];
-      const parts = routeConnKey.replace('CONN__', '').split('__');
-      if (parts.length === 2) {
-        const [recId, depotId] = parts;
-        const rec = state.locations[recId];
-        const depot = state.locations[depotId];
-
-        if (rec && depot && rec.gangId === gang.id && depot.gangId === gang.id && rec.region !== depot.region) {
-          try {
-            executePurchaseBorderRoute(state, gang.id, rec.id, depot.id, prng, events);
-            addDecision(gang, state.tick, 'PURCHASE_ROUTE', `Established cross-border route from ${rec.name} to ${depot.name}.`);
-          } catch {
-            // Skip if conditions not met
           }
         }
       }

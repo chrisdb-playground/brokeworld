@@ -10,7 +10,7 @@ import type {
   VoyageState,
   WorldSnapshot,
 } from '../sim/types';
-import { getEffectiveInfluenceHeat, getNodeHeatMultiplier } from '../sim/influence';
+import { getEffectiveInfluenceHeat, getNodeHeatMultiplier, getHqSynergyInfo } from '../sim/influence';
 import { ChumRenderer } from './ChumRenderer';
 
 export interface HudOverlayCallbacks {
@@ -791,6 +791,7 @@ export class HudOverlay {
       const effectiveHeat = gang ? getEffectiveInfluenceHeat(this.currentSnapshot, gang.id, loc.x, loc.y) : 0;
       const heatPct = Math.round(effectiveHeat * 100);
       const multiplier = getNodeHeatMultiplier(effectiveHeat);
+      const synergy = gang ? getHqSynergyInfo(this.currentSnapshot, gang.id, loc.x, loc.y) : null;
 
       // Discovering gangs for candidates
       const candidateCost = loc.candidateCost || 1500;
@@ -827,6 +828,9 @@ export class HudOverlay {
           ${gang ? `<div class="insp-row"><span class="lbl">OWNING GANG</span><span class="val" style="color: ${gang.color}">${gang.emblem} ${gang.name}</span></div>` : ''}
           ${isCandidate ? `<div class="insp-row"><span class="lbl">ACQUISITION COST</span><span class="val text-green">$${candidateCost}</span></div>` : ''}
           <div class="insp-row"><span class="lbl">INFLUENCE HEAT</span><span class="val highlight" id="insp-loc-heat">${heatPct}% (${multiplier}x Stats Multiplier)</span></div>
+          ${synergy && synergy.isSynergized ? `
+            <div class="insp-row"><span class="lbl">DUAL HQ SYNERGY</span><span class="val text-green" style="font-weight: bold;">⚡ Reinforced (+${synergy.contributingHqCount} HQs)</span></div>
+          ` : ''}
           ${loc.kind === 'HQ' ? `
             <div class="insp-row"><span class="lbl">HQ STATUS</span><span class="val highlight">${loc.isMainHq ? '⭐ Primary Gang HQ (Holds Reserves)' : 'Regional Command Post'}</span></div>
             <div class="insp-row"><span class="lbl">INFLUENCE ZONE</span><span class="val highlight">${Math.round(loc.influenceRadius || 220)}px Radius (Expanding)</span></div>

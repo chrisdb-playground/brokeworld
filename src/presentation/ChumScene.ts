@@ -13,6 +13,8 @@ import type {
 } from '../sim/types';
 import {
   BASE_HQ_INFLUENCE_RADIUS,
+  REGION_BOUNDS,
+  WATER_ZONES,
   getRegionForY,
   canPurchaseNode,
 } from '../sim/influence';
@@ -28,6 +30,126 @@ export interface SceneSelectionEvents {
   onInfluenceToggled?: (visible: boolean) => void;
 }
 
+/**
+ * Mathematically draws a circular shape strictly clipped to a horizontal band [yMin, yMax].
+ * RULE: "influence zones should not cross border"
+ * Guarantees that neither fill nor stroke ever bleeds past regional borders or into water.
+ */
+function drawClippedCircle(
+  gfx: Phaser.GameObjects.Graphics,
+  xc: number,
+  yc: number,
+  r: number,
+  yMin: number,
+  yMax: number,
+  isStroke = false
+): void {
+  if (r <= 0) return;
+  // If entirely outside the vertical region band:
+  if (yc + r <= yMin || yc - r >= yMax) {
+    return;
+  }
+
+  // If entirely inside the region band (no clipping needed):
+  if (yc - r >= yMin && yc + r <= yMax) {
+    if (isStroke) {
+      gfx.strokeCircle(xc, yc, r);
+    } else {
+      gfx.fillCircle(xc, yc, r);
+    }
+    return;
+  }
+
+  const topClipped = yc - r < yMin;
+  const bottomClipped = yc + r > yMax;
+
+  let topThetaRight = 0;
+  let topThetaLeft = 0;
+  if (topClipped) {
+    const dy = yMin - yc;
+    const sinVal = Math.min(1, Math.max(-1, dy / r));
+    const asinVal = Math.asin(sinVal);
+    topThetaRight = asinVal;
+    topThetaLeft = -Math.PI - asinVal;
+  }
+
+  let bottomThetaRight = 0;
+  let bottomThetaLeft = 0;
+  if (bottomClipped) {
+    const dy = yMax - yc;
+    const sinVal = Math.min(1, Math.max(-1, dy / r));
+    const asinVal = Math.asin(sinVal);
+    bottomThetaRight = asinVal;
+    bottomThetaLeft = Math.PI - asinVal;
+  }
+
+  const points: { x: number; y: number }[] = [];
+
+  if (topClipped && !bottomClipped) {
+    const startA = (topThetaRight + 2 * Math.PI) % (2 * Math.PI);
+    const endA = (topThetaLeft + 2 * Math.PI) % (2 * Math.PI);
+    const sweep = (endA - startA + 2 * Math.PI) % (2 * Math.PI);
+    const steps = Math.max(16, Math.round(sweep * 8));
+    for (let i = 0; i <= steps; i++) {
+      const a = startA + (sweep * i) / steps;
+      points.push({
+        x: xc + r * Math.cos(a),
+        y: Math.max(yMin, Math.min(yMax, yc + r * Math.sin(a))),
+      });
+    }
+  } else if (!topClipped && bottomClipped) {
+    const startA = bottomThetaLeft;
+    const endA = (bottomThetaRight + 2 * Math.PI) % (2 * Math.PI);
+    const sweep = (endA - startA + 2 * Math.PI) % (2 * Math.PI);
+    const steps = Math.max(16, Math.round(sweep * 8));
+    for (let i = 0; i <= steps; i++) {
+      const a = startA + (sweep * i) / steps;
+      points.push({
+        x: xc + r * Math.cos(a),
+        y: Math.max(yMin, Math.min(yMax, yc + r * Math.sin(a))),
+      });
+    }
+  } else if (topClipped && bottomClipped) {
+    const startR = (topThetaRight + 2 * Math.PI) % (2 * Math.PI);
+    const endR = bottomThetaRight;
+    const sweepR = (endR - startR + 2 * Math.PI) % (2 * Math.PI);
+    const stepsR = Math.max(8, Math.round(sweepR * 8));
+    for (let i = 0; i <= stepsR; i++) {
+      const a = startR + (sweepR * i) / stepsR;
+      points.push({
+        x: xc + r * Math.cos(a),
+        y: Math.max(yMin, Math.min(yMax, yc + r * Math.sin(a))),
+      });
+    }
+    const startL = bottomThetaLeft;
+    const endL = (topThetaLeft + 2 * Math.PI) % (2 * Math.PI);
+    const sweepL = (endL - startL + 2 * Math.PI) % (2 * Math.PI);
+    const stepsL = Math.max(8, Math.round(sweepL * 8));
+    for (let i = 0; i <= stepsL; i++) {
+      const a = startL + (sweepL * i) / stepsL;
+      points.push({
+        x: xc + r * Math.cos(a),
+        y: Math.max(yMin, Math.min(yMax, yc + r * Math.sin(a))),
+      });
+    }
+  }
+
+  if (points.length < 3) return;
+
+  gfx.beginPath();
+  gfx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    gfx.lineTo(points[i].x, points[i].y);
+  }
+  gfx.closePath();
+
+  if (isStroke) {
+    gfx.strokePath();
+  } else {
+    gfx.fillPath();
+  }
+}
+
 export class ChumScene extends Phaser.Scene {
   private port!: GamePort;
   private eventsHandler: SceneSelectionEvents = {};
@@ -35,6 +157,8 @@ export class ChumScene extends Phaser.Scene {
 
   // Graphics layers
   private floorTile!: Phaser.GameObjects.TileSprite;
+  private channelWaterTile!: Phaser.GameObjects.TileSprite;
+  private medWaterTile!: Phaser.GameObjects.TileSprite;
   private bgGfx!: Phaser.GameObjects.Graphics;
   private influenceGfxUk!: Phaser.GameObjects.Graphics;
   private influenceGfxEur!: Phaser.GameObjects.Graphics;
@@ -99,8 +223,9 @@ export class ChumScene extends Phaser.Scene {
   }
 
   preload() {
-    // Preload sandy floor background
+    // Preload sandy floor background and water tile
     this.load.image('sandy_floor', '/sandy.png');
+    this.load.image('water_tile', '/water-tile.png');
 
     // 4 machine tiles:
     // 1. Recruiter: 'crusher mk3' tile
@@ -156,6 +281,15 @@ export class ChumScene extends Phaser.Scene {
     // 0. Sandy Floor / Background TileSprite
     this.floorTile = this.add.tileSprite(600, 360, 4200, 2600, 'sandy_floor').setDepth(0);
 
+    // 0.5. Water Tile Sprites separating regions
+    // English Channel Water (y: 160 to 215, height: 55px, center: 187.5)
+    this.channelWaterTile = this.add.tileSprite(600, 187.5, 4200, 55, 'water_tile').setDepth(0.5);
+    this.channelWaterTile.setAlpha(0.92);
+
+    // Mediterranean Sea Water (y: 485 to 565, height: 80px, center: 525)
+    this.medWaterTile = this.add.tileSprite(600, 525, 4200, 80, 'water_tile').setDepth(0.5);
+    this.medWaterTile.setAlpha(0.92);
+
     // 1. Graphics layers in depth order
     this.bgGfx = this.add.graphics().setDepth(1);
 
@@ -164,22 +298,22 @@ export class ChumScene extends Phaser.Scene {
     const worldW = 1800;
     const startX = -300;
 
-    // UK Influence Mask (y: -100 to 205)
+    // UK Influence Mask (y: -100 to 160)
     this.influenceGfxUk = this.add.graphics().setDepth(1.4);
     const maskGfxUk = this.make.graphics();
-    maskGfxUk.fillRect(startX, -100, worldW, 305);
+    maskGfxUk.fillRect(startX, REGION_BOUNDS.UK.yMin, worldW, REGION_BOUNDS.UK.yMax - REGION_BOUNDS.UK.yMin);
     this.influenceGfxUk.setMask(new Phaser.Display.Masks.GeometryMask(this, maskGfxUk));
 
-    // Europe Influence Mask (y: 205 to 505)
+    // Europe Influence Mask (y: 215 to 485)
     this.influenceGfxEur = this.add.graphics().setDepth(1.4);
     const maskGfxEur = this.make.graphics();
-    maskGfxEur.fillRect(startX, 205, worldW, 300);
+    maskGfxEur.fillRect(startX, REGION_BOUNDS.EUROPE.yMin, worldW, REGION_BOUNDS.EUROPE.yMax - REGION_BOUNDS.EUROPE.yMin);
     this.influenceGfxEur.setMask(new Phaser.Display.Masks.GeometryMask(this, maskGfxEur));
 
-    // Africa Influence Mask (y: 505 to 800)
+    // Africa Influence Mask (y: 565 to 820)
     this.influenceGfxAfr = this.add.graphics().setDepth(1.4);
     const maskGfxAfr = this.make.graphics();
-    maskGfxAfr.fillRect(startX, 505, worldW, 295);
+    maskGfxAfr.fillRect(startX, REGION_BOUNDS.AFRICA.yMin, worldW, REGION_BOUNDS.AFRICA.yMax - REGION_BOUNDS.AFRICA.yMin);
     this.influenceGfxAfr.setMask(new Phaser.Display.Masks.GeometryMask(this, maskGfxAfr));
 
     this.borderGfx = this.add.graphics().setDepth(2);
@@ -223,11 +357,19 @@ export class ChumScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
+    if (this.channelWaterTile) {
+      this.channelWaterTile.tilePositionX += delta * 0.015;
+    }
+    if (this.medWaterTile) {
+      this.medWaterTile.tilePositionX -= delta * 0.012;
+    }
     scheduler.update(delta);
   }
 
   private createStaticRegionLabels() {
-    const textStyle = {
+    this.labelsContainer.removeAll(true);
+
+    const titleStyle = {
       fontFamily: 'Rajdhani, -apple-system, sans-serif',
       fontSize: '12px',
       fontStyle: 'bold',
@@ -236,42 +378,95 @@ export class ChumScene extends Phaser.Scene {
       padding: { x: 8, y: 4 },
     };
 
-    // UK Label
-    const ukText = this.add.text(20, 35, '🇬🇧 UNITED KINGDOM (UK) — FINAL DESTINATION', {
-      ...textStyle,
+    const borderStyle = {
+      fontFamily: 'Rajdhani, -apple-system, sans-serif',
+      fontSize: '10px',
+      fontStyle: 'bold',
+      color: '#f8fafc',
+      padding: { x: 6, y: 3 },
+    };
+
+    // 1. UK Region Title
+    this.labelsContainer.add(
+      this.add.text(20, 25, '🇬🇧 UNITED KINGDOM (UK) — FINAL DESTINATION', {
+        ...titleStyle,
+        color: '#38bdf8',
+      })
+    );
+
+    // 2. English Channel Borders (2 Sides: IN to UK, OUT of Europe)
+    // Border IN to UK (North edge of channel at y = 160)
+    const ukBorderText = this.add.text(420, 148, '▼ BORDER IN TO UK — DOVER MARITIME ENTRY', {
+      ...borderStyle,
       color: '#38bdf8',
+      backgroundColor: '#0c2a47ee',
     });
-    this.labelsContainer.add(ukText);
+    ukBorderText.setOrigin(0.5, 1);
+    this.labelsContainer.add(ukBorderText);
 
-    // Channel Border Label
-    const channelText = this.add.text(600, 192, '🌊 ENGLISH CHANNEL MARITIME BORDER — PASSAGE TO UK', {
-      ...textStyle,
-      color: '#facc15',
+    // Center Channel Water Label
+    const channelSeaText = this.add.text(420, 187.5, '🌊 ENGLISH CHANNEL MARITIME CORRIDOR — WATER PASSAGE TO UK', {
+      ...borderStyle,
+      fontSize: '10px',
+      color: '#7dd3fc',
+      backgroundColor: '#0369a199',
     });
-    channelText.setOrigin(0.5, 0);
-    this.labelsContainer.add(channelText);
+    channelSeaText.setOrigin(0.5, 0.5);
+    this.labelsContainer.add(channelSeaText);
 
-    // West Europe Label
-    const eurText = this.add.text(20, 220, '🇪🇺 WEST EUROPE — TRANSIT & DESTINATION', {
-      ...textStyle,
+    // Border OUT of Europe (South edge of channel at y = 215)
+    const eurNorthBorderText = this.add.text(420, 227, '▲ BORDER OUT OF EUROPE — CHANNEL DEPARTURE PERIMETER', {
+      ...borderStyle,
       color: '#4ade80',
+      backgroundColor: '#064e3bee',
     });
-    this.labelsContainer.add(eurText);
+    eurNorthBorderText.setOrigin(0.5, 0);
+    this.labelsContainer.add(eurNorthBorderText);
 
-    // Mediterranean Sea Border Label
-    const medText = this.add.text(600, 492, '🌊 MEDITERRANEAN SEA BORDER — AFRICA ➔ EUROPE', {
-      ...textStyle,
-      color: '#facc15',
+    // 3. West Europe Region Title
+    this.labelsContainer.add(
+      this.add.text(20, 235, '🇪🇺 WEST EUROPE — TRANSIT & DESTINATION', {
+        ...titleStyle,
+        color: '#4ade80',
+      })
+    );
+
+    // 4. Mediterranean Sea Borders (2 Sides: IN to Europe, OUT of Africa)
+    // Border IN to Europe (North edge of Mediterranean at y = 485)
+    const eurSouthBorderText = this.add.text(420, 473, '▼ BORDER IN TO EUROPE — MEDITERRANEAN ENTRY CHECKPOINT', {
+      ...borderStyle,
+      color: '#4ade80',
+      backgroundColor: '#064e3bee',
     });
-    medText.setOrigin(0.5, 0);
-    this.labelsContainer.add(medText);
+    eurSouthBorderText.setOrigin(0.5, 1);
+    this.labelsContainer.add(eurSouthBorderText);
 
-    // North Africa Label
-    const afrText = this.add.text(20, 535, '🌍 NORTH AFRICA — CHUMIGRANT ORIGINS', {
-      ...textStyle,
+    // Center Mediterranean Sea Label
+    const medSeaText = this.add.text(420, 525, '🌊 MEDITERRANEAN SEA WATERS — CROSS-BORDER BOAT CORRIDOR', {
+      ...borderStyle,
+      fontSize: '10px',
+      color: '#fde047',
+      backgroundColor: '#854d0e99',
+    });
+    medSeaText.setOrigin(0.5, 0.5);
+    this.labelsContainer.add(medSeaText);
+
+    // Border OUT of Africa (South edge of Mediterranean at y = 565)
+    const afrBorderText = this.add.text(420, 577, '▲ BORDER OUT OF AFRICA — MARITIME DEPARTURE BORDER', {
+      ...borderStyle,
       color: '#fb923c',
+      backgroundColor: '#7c2d12ee',
     });
-    this.labelsContainer.add(afrText);
+    afrBorderText.setOrigin(0.5, 0);
+    this.labelsContainer.add(afrBorderText);
+
+    // 5. North Africa Region Title
+    this.labelsContainer.add(
+      this.add.text(20, 585, '🌍 NORTH AFRICA — CHUMIGRANT ORIGINS', {
+        ...titleStyle,
+        color: '#fb923c',
+      })
+    );
   }
 
   private setupCameraControls() {
@@ -425,8 +620,13 @@ export class ChumScene extends Phaser.Scene {
     );
 
     if (this.placementMode.kind === 'HQ') {
+      const bounds = REGION_BOUNDS[region];
       this.placementGfx.lineStyle(2, check.allowed ? 0x22c55e : 0xef4444, 0.5);
-      this.placementGfx.strokeCircle(worldX, worldY, BASE_HQ_INFLUENCE_RADIUS);
+      if (bounds) {
+        drawClippedCircle(this.placementGfx, worldX, worldY, BASE_HQ_INFLUENCE_RADIUS, bounds.yMin, bounds.yMax, true);
+      } else {
+        this.placementGfx.strokeCircle(worldX, worldY, BASE_HQ_INFLUENCE_RADIUS);
+      }
     }
 
     if (check.allowed) {
@@ -571,14 +771,18 @@ export class ChumScene extends Phaser.Scene {
         (l) => l.gangId === gang.id && l.kind === 'HQ'
       );
 
+      // 1. Draw concentric dissipation rings for each HQ
       for (const hq of hqs) {
         const gfx = gfxByRegion[hq.region];
         if (!gfx) continue;
 
+        const bounds = REGION_BOUNDS[hq.region];
+        if (!bounds) continue;
+
         const radius = hq.influenceRadius || BASE_HQ_INFLUENCE_RADIUS;
 
         // "darker color - stronger influence - it dissipates with distance from hq"
-        // 12 concentric steps creating smooth radial heat decay
+        // 12 concentric steps creating smooth radial heat decay strictly clipped to region bounds
         const steps = 12;
         for (let i = steps; i >= 1; i--) {
           const r = (radius / steps) * i;
@@ -587,22 +791,63 @@ export class ChumScene extends Phaser.Scene {
 
           if (alpha > 0.005) {
             gfx.fillStyle(gang.colorNum, alpha);
-            gfx.fillCircle(hq.x, hq.y, r);
+            drawClippedCircle(gfx, hq.x, hq.y, r, bounds.yMin, bounds.yMax, false);
           }
         }
 
         // Inner solid core (high intensity epicenter)
         gfx.fillStyle(gang.colorNum, 0.55 * alphaMultiplier);
-        gfx.fillCircle(hq.x, hq.y, 22);
+        drawClippedCircle(gfx, hq.x, hq.y, 22, bounds.yMin, bounds.yMax, false);
         gfx.lineStyle(1.5, 0xffffff, 0.45 * alphaMultiplier);
-        gfx.strokeCircle(hq.x, hq.y, 22);
+        drawClippedCircle(gfx, hq.x, hq.y, 22, bounds.yMin, bounds.yMax, true);
 
         // Dynamic radar contour rings
         gfx.lineStyle(1.5, gang.colorNum, 0.65 * alphaMultiplier);
-        gfx.strokeCircle(hq.x, hq.y, radius);
+        drawClippedCircle(gfx, hq.x, hq.y, radius, bounds.yMin, bounds.yMax, true);
 
         gfx.lineStyle(1, 0xffffff, 0.2 * alphaMultiplier);
-        gfx.strokeCircle(hq.x, hq.y, radius * 0.5);
+        drawClippedCircle(gfx, hq.x, hq.y, radius * 0.5, bounds.yMin, bounds.yMax, true);
+      }
+
+      // 2. Multi-HQ Synergy Rendering:
+      // RULE: "2 hq influence zones, same gang, increase the influence"
+      const regions: RegionId[] = ['UK', 'EUROPE', 'AFRICA'];
+      for (const reg of regions) {
+        const regHqs = hqs.filter((h) => h.region === reg);
+        if (regHqs.length >= 2) {
+          const gfx = gfxByRegion[reg];
+          if (!gfx) continue;
+
+          for (let i = 0; i < regHqs.length; i++) {
+            for (let j = i + 1; j < regHqs.length; j++) {
+              const hq1 = regHqs[i];
+              const hq2 = regHqs[j];
+              const r1 = hq1.influenceRadius || BASE_HQ_INFLUENCE_RADIUS;
+              const r2 = hq2.influenceRadius || BASE_HQ_INFLUENCE_RADIUS;
+              const dist = Math.hypot(hq1.x - hq2.x, hq1.y - hq2.y);
+
+              // If influence zones overlap:
+              if (dist < r1 + r2) {
+                // Resonance conduit beam connecting the two HQs
+                gfx.lineStyle(4, gang.colorNum, 0.45 * alphaMultiplier);
+                gfx.lineBetween(hq1.x, hq1.y, hq2.x, hq2.y);
+
+                gfx.lineStyle(1.5, 0xffffff, 0.75 * alphaMultiplier);
+                gfx.lineBetween(hq1.x, hq1.y, hq2.x, hq2.y);
+
+                // Overlap resonance core at midpoint
+                const midX = (hq1.x + hq2.x) / 2;
+                const midY = (hq1.y + hq2.y) / 2;
+                gfx.fillStyle(0xffffff, 0.85 * alphaMultiplier);
+                gfx.fillCircle(midX, midY, 6);
+                gfx.lineStyle(2.5, gang.colorNum, 0.95 * alphaMultiplier);
+                gfx.strokeCircle(midX, midY, 14);
+                gfx.lineStyle(1, 0xffffff, 0.5 * alphaMultiplier);
+                gfx.strokeCircle(midX, midY, 24);
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -615,54 +860,91 @@ export class ChumScene extends Phaser.Scene {
     const worldW = 1800;
     const startX = -300;
 
-    // 1. UK Region (North: y: -100 to 205) - Oceanic Navy
+    // 1. UK Land Region (North: y: -100 to 160) - Oceanic Navy
     gfx.fillStyle(0x0c1b2e, 0.55);
-    gfx.fillRect(startX, -100, worldW, 305);
+    gfx.fillRect(startX, REGION_BOUNDS.UK.yMin, worldW, REGION_BOUNDS.UK.yMax - REGION_BOUNDS.UK.yMin);
 
-    // 2. West Europe Region (Middle: y: 205 to 505) - Slate / Pine
+    // 2. West Europe Land Region (Middle: y: 215 to 485) - Slate / Pine
     gfx.fillStyle(0x0d2222, 0.45);
-    gfx.fillRect(startX, 205, worldW, 300);
+    gfx.fillRect(startX, REGION_BOUNDS.EUROPE.yMin, worldW, REGION_BOUNDS.EUROPE.yMax - REGION_BOUNDS.EUROPE.yMin);
 
-    // 3. North Africa Region (South: y: 505 to 800) - Warm Clay / Amber
+    // 3. North Africa Land Region (South: y: 565 to 820) - Warm Clay / Amber
     gfx.fillStyle(0x291910, 0.55);
-    gfx.fillRect(startX, 505, worldW, 295);
+    gfx.fillRect(startX, REGION_BOUNDS.AFRICA.yMin, worldW, REGION_BOUNDS.AFRICA.yMax - REGION_BOUNDS.AFRICA.yMin);
 
-    // Subtle grid lines
+    // Subtle grid lines on land regions
     gfx.lineStyle(1, 0x0f172a, 0.25);
     for (let x = startX; x <= startX + worldW; x += 64) {
-      gfx.lineBetween(x, -100, x, 750);
-    }
-    for (let y = -100; y <= 750; y += 64) {
-      gfx.lineBetween(startX, y, startX + worldW, y);
+      gfx.lineBetween(x, REGION_BOUNDS.UK.yMin, x, REGION_BOUNDS.UK.yMax);
+      gfx.lineBetween(x, REGION_BOUNDS.EUROPE.yMin, x, REGION_BOUNDS.EUROPE.yMax);
+      gfx.lineBetween(x, REGION_BOUNDS.AFRICA.yMin, x, REGION_BOUNDS.AFRICA.yMax);
     }
 
-    // High-visibility Regional Maritime Borders
+    // High-visibility Regional 2-Sided Borders
     const bgBorder = this.borderGfx;
     bgBorder.clear();
 
-    // English Channel Border (y: 205)
-    bgBorder.fillStyle(0x0284c7, 0.25);
-    bgBorder.fillRect(startX, 195, worldW, 20);
-
-    bgBorder.lineStyle(6, 0x090d16, 0.9);
-    bgBorder.lineBetween(startX, 205, startX + worldW, 205);
-
-    bgBorder.lineStyle(2.5, 0x38bdf8, 0.85);
-    for (let x = startX; x < startX + worldW; x += 28) {
-      bgBorder.lineBetween(x, 205, x + 18, 205);
+    // ==========================================
+    // CHANNEL BORDERS (2 SIDES: IN TO UK, OUT OF EUROPE)
+    // ==========================================
+    // North Side: Border IN to UK (y: 160)
+    bgBorder.fillStyle(0x0c4a6e, 0.45);
+    bgBorder.fillRect(startX, 154, worldW, 6);
+    bgBorder.lineStyle(3, 0x0284c7, 0.95);
+    bgBorder.lineBetween(startX, 160, startX + worldW, 160);
+    // Dashed security stripe on UK side
+    bgBorder.lineStyle(2, 0x38bdf8, 0.85);
+    for (let x = startX; x < startX + worldW; x += 24) {
+      bgBorder.lineBetween(x, 158, x + 14, 158);
     }
+    // Water shoreline foam line (water side at y = 161)
+    bgBorder.lineStyle(1.5, 0xbae6fd, 0.55);
+    bgBorder.lineBetween(startX, 161, startX + worldW, 161);
 
-    // Mediterranean Sea Border (y: 505)
-    bgBorder.fillStyle(0x0284c7, 0.25);
-    bgBorder.fillRect(startX, 495, worldW, 20);
-
-    bgBorder.lineStyle(6, 0x090d16, 0.9);
-    bgBorder.lineBetween(startX, 505, startX + worldW, 505);
-
-    bgBorder.lineStyle(2.5, 0xfacc15, 0.85);
-    for (let x = startX; x < startX + worldW; x += 28) {
-      bgBorder.lineBetween(x, 505, x + 18, 505);
+    // South Side: Border OUT of Europe (y: 215)
+    bgBorder.fillStyle(0x064e3b, 0.45);
+    bgBorder.fillRect(startX, 215, worldW, 6);
+    bgBorder.lineStyle(3, 0x059669, 0.95);
+    bgBorder.lineBetween(startX, 215, startX + worldW, 215);
+    // Dashed hazard stripe on European side
+    bgBorder.lineStyle(2, 0x4ade80, 0.85);
+    for (let x = startX; x < startX + worldW; x += 24) {
+      bgBorder.lineBetween(x, 217, x + 14, 217);
     }
+    // Water shoreline foam line (water side at y = 214)
+    bgBorder.lineStyle(1.5, 0xa7f3d0, 0.55);
+    bgBorder.lineBetween(startX, 214, startX + worldW, 214);
+
+    // ==========================================
+    // MEDITERRANEAN BORDERS (2 SIDES: IN TO EUROPE, OUT OF AFRICA)
+    // ==========================================
+    // North Side: Border IN to Europe (y: 485)
+    bgBorder.fillStyle(0x064e3b, 0.45);
+    bgBorder.fillRect(startX, 479, worldW, 6);
+    bgBorder.lineStyle(3, 0x059669, 0.95);
+    bgBorder.lineBetween(startX, 485, startX + worldW, 485);
+    // Dashed Schengen security line
+    bgBorder.lineStyle(2, 0x4ade80, 0.85);
+    for (let x = startX; x < startX + worldW; x += 24) {
+      bgBorder.lineBetween(x, 483, x + 14, 483);
+    }
+    // Shoreline foam line (water side at y = 486)
+    bgBorder.lineStyle(1.5, 0xa7f3d0, 0.55);
+    bgBorder.lineBetween(startX, 486, startX + worldW, 486);
+
+    // South Side: Border OUT of Africa (y: 565)
+    bgBorder.fillStyle(0x7c2d12, 0.45);
+    bgBorder.fillRect(startX, 565, worldW, 6);
+    bgBorder.lineStyle(3, 0xd97706, 0.95);
+    bgBorder.lineBetween(startX, 565, startX + worldW, 565);
+    // Dashed departure perimeter stripe
+    bgBorder.lineStyle(2, 0xfb923c, 0.85);
+    for (let x = startX; x < startX + worldW; x += 24) {
+      bgBorder.lineBetween(x, 567, x + 14, 567);
+    }
+    // Shoreline foam line (water side at y = 564)
+    bgBorder.lineStyle(1.5, 0xfde68a, 0.55);
+    bgBorder.lineBetween(startX, 564, startX + worldW, 564);
   }
 
   private renderPhysicalConnections(snapshot: WorldSnapshot) {

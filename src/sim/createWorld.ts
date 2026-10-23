@@ -14,11 +14,11 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
   const seed = prng.getSeed();
 
   // 1. Initial Starting World:
-  // Gangs start with a pot of money ($4,500), a Main HQ, and an HQ in another region (2 HQs total).
+  // Gangs start with a pot of money ($8,000) and ONLY their single Main HQ in their home region.
   // All other locations in the world start as unowned candidate nodes ('DISCOVERED_CANDIDATE', 'NEUTRAL')
-  // waiting to be scouted by Scout Hoods and purchased.
+  // waiting to be scouted by Scout Hoods and purchased gradually.
   const locations: Record<string, LocationDef> = {
-    // === GANG NEON GILL (Starts Europe + Africa) ===
+    // === GANG NEON GILL (Starts Europe with Main HQ) ===
     HQ_NEON: {
       id: 'HQ_NEON',
       name: 'Neon European HQ',
@@ -33,22 +33,8 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       operationalStatus: 'ACTIVE',
       influenceRadius: 220,
     },
-    HQ_NEON_AFRICA: {
-      id: 'HQ_NEON_AFRICA',
-      name: 'Neon Tripoli Forward HQ',
-      region: 'AFRICA',
-      x: 260,
-      y: 640,
-      tileFamily: 'logistics-hub',
-      tileVariant: 'mk1',
-      kind: 'HQ',
-      gangId: 'GANG_NEON_GILL',
-      isMainHq: false,
-      operationalStatus: 'ACTIVE',
-      influenceRadius: 220,
-    },
 
-    // === GANG CRIMSON CLAW (Starts Europe + UK) ===
+    // === GANG CRIMSON CLAW (Starts Europe with Main HQ) ===
     HQ_CRIMSON: {
       id: 'HQ_CRIMSON',
       name: 'Crimson Central HQ',
@@ -63,22 +49,8 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       operationalStatus: 'ACTIVE',
       influenceRadius: 220,
     },
-    HQ_CRIMSON_UK: {
-      id: 'HQ_CRIMSON_UK',
-      name: 'Crimson London Forward HQ',
-      region: 'UK',
-      x: 620,
-      y: 90,
-      tileFamily: 'logistics-hub',
-      tileVariant: 'mk1',
-      kind: 'HQ',
-      gangId: 'GANG_CRIMSON_CLAW',
-      isMainHq: false,
-      operationalStatus: 'ACTIVE',
-      influenceRadius: 220,
-    },
 
-    // === GANG AMBER FIN (Starts Africa + Europe) ===
+    // === GANG AMBER FIN (Starts Africa with Main HQ) ===
     HQ_AMBER_AFRICA: {
       id: 'HQ_AMBER_AFRICA',
       name: 'Amber Alexandria Citadel HQ',
@@ -93,19 +65,49 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       operationalStatus: 'ACTIVE',
       influenceRadius: 220,
     },
-    HQ_AMBER: {
-      id: 'HQ_AMBER',
-      name: 'Amber Maritime Forward HQ',
+
+    // ==========================================
+    // CANDIDATE UNOWNED NODES (For Scouting & Purchase)
+    // ==========================================
+    // Candidate Regional HQs:
+    CAND_HQ_NEON_AFR: {
+      id: 'CAND_HQ_NEON_AFR',
+      name: 'Tripoli Safehouse HQ Site',
+      region: 'AFRICA',
+      x: 260,
+      y: 640,
+      tileFamily: 'logistics-hub',
+      tileVariant: 'mk1',
+      kind: 'HQ',
+      gangId: 'NEUTRAL',
+      operationalStatus: 'DISCOVERED_CANDIDATE',
+      candidateCost: 2200,
+    },
+    CAND_HQ_CRIM_UK: {
+      id: 'CAND_HQ_CRIM_UK',
+      name: 'London Thameside HQ Site',
+      region: 'UK',
+      x: 620,
+      y: 90,
+      tileFamily: 'logistics-hub',
+      tileVariant: 'mk1',
+      kind: 'HQ',
+      gangId: 'NEUTRAL',
+      operationalStatus: 'DISCOVERED_CANDIDATE',
+      candidateCost: 2200,
+    },
+    CAND_HQ_AMB_EUR: {
+      id: 'CAND_HQ_AMB_EUR',
+      name: 'Marseille Maritime HQ Site',
       region: 'EUROPE',
       x: 1000,
       y: 250,
       tileFamily: 'logistics-hub',
       tileVariant: 'mk1',
       kind: 'HQ',
-      gangId: 'GANG_AMBER_FIN',
-      isMainHq: false,
-      operationalStatus: 'ACTIVE',
-      influenceRadius: 220,
+      gangId: 'NEUTRAL',
+      operationalStatus: 'DISCOVERED_CANDIDATE',
+      candidateCost: 2200,
     },
 
     // ==========================================
@@ -123,7 +125,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'RECRUITER',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1800,
+      candidateCost: 1500,
     },
     CAND_DEPOT_NEON_EUR: {
       id: 'CAND_DEPOT_NEON_EUR',
@@ -136,7 +138,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'DEPOT',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1500,
+      candidateCost: 1200,
     },
     CAND_WS_NEON: {
       id: 'CAND_WS_NEON',
@@ -149,7 +151,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'WORKSHOP',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 2500,
+      candidateCost: 2000,
     },
     CAND_REC_NEON_EUR: {
       id: 'CAND_REC_NEON_EUR',
@@ -162,7 +164,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'RECRUITER',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1800,
+      candidateCost: 1500,
     },
     CAND_DEPOT_NEON_UK: {
       id: 'CAND_DEPOT_NEON_UK',
@@ -175,7 +177,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'DEPOT',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1500,
+      candidateCost: 1200,
     },
     CAND_HQ_NEON_UK: {
       id: 'CAND_HQ_NEON_UK',
@@ -188,7 +190,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'HQ',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 3500,
+      candidateCost: 2200,
     },
 
     // Region Central:
@@ -203,7 +205,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'RECRUITER',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1800,
+      candidateCost: 1500,
     },
     CAND_DEPOT_CRIM_EUR: {
       id: 'CAND_DEPOT_CRIM_EUR',
@@ -216,7 +218,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'DEPOT',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1500,
+      candidateCost: 1200,
     },
     CAND_WS_CRIMSON: {
       id: 'CAND_WS_CRIMSON',
@@ -229,7 +231,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'WORKSHOP',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 2500,
+      candidateCost: 2000,
     },
     CAND_REC_CRIM_EUR: {
       id: 'CAND_REC_CRIM_EUR',
@@ -242,7 +244,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'RECRUITER',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1800,
+      candidateCost: 1500,
     },
     CAND_DEPOT_CRIM_UK: {
       id: 'CAND_DEPOT_CRIM_UK',
@@ -255,7 +257,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'DEPOT',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1500,
+      candidateCost: 1200,
     },
     CAND_HQ_CRIM_AFR: {
       id: 'CAND_HQ_CRIM_AFR',
@@ -268,7 +270,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'HQ',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 3500,
+      candidateCost: 2200,
     },
 
     // Region East:
@@ -283,7 +285,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'RECRUITER',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1800,
+      candidateCost: 1500,
     },
     CAND_DEPOT_AMB_EUR: {
       id: 'CAND_DEPOT_AMB_EUR',
@@ -296,7 +298,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'DEPOT',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1500,
+      candidateCost: 1200,
     },
     CAND_WS_AMBER: {
       id: 'CAND_WS_AMBER',
@@ -309,7 +311,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'WORKSHOP',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 2500,
+      candidateCost: 2000,
     },
     CAND_REC_AMB_EUR: {
       id: 'CAND_REC_AMB_EUR',
@@ -322,7 +324,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'RECRUITER',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1800,
+      candidateCost: 1500,
     },
     CAND_DEPOT_AMB_UK: {
       id: 'CAND_DEPOT_AMB_UK',
@@ -335,7 +337,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'DEPOT',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 1500,
+      candidateCost: 1200,
     },
     CAND_HQ_AMB_UK: {
       id: 'CAND_HQ_AMB_UK',
@@ -348,11 +350,11 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       kind: 'HQ',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
-      candidateCost: 3500,
+      candidateCost: 2200,
     },
   };
 
-  // 2. Gangs start with a pot of money ($4,500), 2 HQs, and 0 pre-owned nodes/routes
+  // 2. Gangs start with a pot of money ($10,000), 1 single Main HQ, and 0 pre-owned candidate nodes/routes
   const gangs: Record<string, GangState> = {
     GANG_NEON_GILL: {
       id: 'GANG_NEON_GILL',
@@ -362,18 +364,18 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       emblem: '✦',
       hqLocationId: 'HQ_NEON',
       mainHqLocationId: 'HQ_NEON',
-      hqLocationIds: ['HQ_NEON', 'HQ_NEON_AFRICA'],
+      hqLocationIds: ['HQ_NEON'],
       workshopLocationId: undefined,
       recruiterLocationIds: [],
       depotLocationIds: [],
-      cash: 8000,
+      cash: 10000,
       reputation: 75,
       status: 'ACTIVE',
       discoveredNodeIds: [],
       discoveredRouteIds: [],
-      wageBillTotal: 45,
+      wageBillTotal: 30,
       recentDecisions: [
-        { tick: 0, action: 'FOUND_GANG', reason: 'Chartered syndicate with European Main HQ and Tripoli Forward HQ.' },
+        { tick: 0, action: 'FOUND_GANG', reason: 'Chartered syndicate with European Main HQ.' },
       ],
       stats: {
         recruitsTotal: 0,
@@ -391,18 +393,18 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       emblem: '▲',
       hqLocationId: 'HQ_CRIMSON',
       mainHqLocationId: 'HQ_CRIMSON',
-      hqLocationIds: ['HQ_CRIMSON', 'HQ_CRIMSON_UK'],
+      hqLocationIds: ['HQ_CRIMSON'],
       workshopLocationId: undefined,
       recruiterLocationIds: [],
       depotLocationIds: [],
-      cash: 8000,
+      cash: 10000,
       reputation: 70,
       status: 'ACTIVE',
       discoveredNodeIds: [],
       discoveredRouteIds: [],
-      wageBillTotal: 45,
+      wageBillTotal: 30,
       recentDecisions: [
-        { tick: 0, action: 'FOUND_GANG', reason: 'Chartered syndicate with Central European HQ and London Forward Base.' },
+        { tick: 0, action: 'FOUND_GANG', reason: 'Chartered syndicate with Central European Main HQ.' },
       ],
       stats: {
         recruitsTotal: 0,
@@ -420,18 +422,18 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       emblem: '◆',
       hqLocationId: 'HQ_AMBER_AFRICA',
       mainHqLocationId: 'HQ_AMBER_AFRICA',
-      hqLocationIds: ['HQ_AMBER_AFRICA', 'HQ_AMBER'],
+      hqLocationIds: ['HQ_AMBER_AFRICA'],
       workshopLocationId: undefined,
       recruiterLocationIds: [],
       depotLocationIds: [],
-      cash: 8000,
+      cash: 10000,
       reputation: 80,
       status: 'ACTIVE',
       discoveredNodeIds: [],
       discoveredRouteIds: [],
-      wageBillTotal: 45,
+      wageBillTotal: 30,
       recentDecisions: [
-        { tick: 0, action: 'FOUND_GANG', reason: 'Chartered cartel with Alexandria Citadel Main HQ and Mediterranean Branch.' },
+        { tick: 0, action: 'FOUND_GANG', reason: 'Chartered cartel with Alexandria Citadel Main HQ.' },
       ],
       stats: {
         recruitsTotal: 0,
@@ -443,14 +445,11 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
     },
   };
 
-  // 3. Initial Operations: 2 HQs per gang
+  // 3. Initial Operations: 1 Main HQ per gang
   const operations: Record<string, OperationState> = {
     OP_HQ_NEON: { id: 'OP_HQ_NEON', gangId: 'GANG_NEON_GILL', locationId: 'HQ_NEON', type: 'HQ', status: 'ACTIVE', openedTick: 0 },
-    OP_HQ_NEON_AFR: { id: 'OP_HQ_NEON_AFR', gangId: 'GANG_NEON_GILL', locationId: 'HQ_NEON_AFRICA', type: 'HQ', status: 'ACTIVE', openedTick: 0 },
     OP_HQ_CRIMSON: { id: 'OP_HQ_CRIMSON', gangId: 'GANG_CRIMSON_CLAW', locationId: 'HQ_CRIMSON', type: 'HQ', status: 'ACTIVE', openedTick: 0 },
-    OP_HQ_CRIM_UK: { id: 'OP_HQ_CRIM_UK', gangId: 'GANG_CRIMSON_CLAW', locationId: 'HQ_CRIMSON_UK', type: 'HQ', status: 'ACTIVE', openedTick: 0 },
     OP_HQ_AMB_AFR: { id: 'OP_HQ_AMB_AFR', gangId: 'GANG_AMBER_FIN', locationId: 'HQ_AMBER_AFRICA', type: 'HQ', status: 'ACTIVE', openedTick: 0 },
-    OP_HQ_AMBER: { id: 'OP_HQ_AMBER', gangId: 'GANG_AMBER_FIN', locationId: 'HQ_AMBER', type: 'HQ', status: 'ACTIVE', openedTick: 0 },
   };
 
   const connections: Record<string, PhysicalConnectionDef> = {};
@@ -472,7 +471,7 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
         id: 'EVT_INIT_0',
         tick: 0,
         type: 'GANG_FOUNDED',
-        description: 'Chum World initialized. Gangs start with $4,500 cash, 2 HQs, and Scout Hoods ready to explore.',
+        description: 'Chum World initialized. Gangs start with a single Main HQ and Scout Hood to build up gradually.',
         importance: 'HIGH',
       },
     ],

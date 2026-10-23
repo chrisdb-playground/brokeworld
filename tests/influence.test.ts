@@ -13,7 +13,7 @@ import {
 } from '../src/sim/influence';
 
 describe('HQ Influence Zones and Infrastructure Acquisition', () => {
-  it('starts the sim with a main HQ and an HQ in another region (2 HQs per gang)', () => {
+  it('starts the sim with a single main HQ and builds up gradually (1 main HQ per gang)', () => {
     const prng = createPrng(1234);
     const state = createInitialWorld(prng);
 
@@ -22,7 +22,7 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
 
     for (const gang of gangs) {
       expect(gang.hqLocationIds).toBeDefined();
-      expect(gang.hqLocationIds!.length).toBe(2);
+      expect(gang.hqLocationIds!.length).toBe(1);
 
       const mainHq = state.locations[gang.mainHqLocationId || gang.hqLocationId];
       expect(mainHq).toBeDefined();
@@ -280,4 +280,127 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
     expect(foundDepot!.kind).toBe('DEPOT');
     expect(gang.depotLocationIds).toContain(foundDepot!.id);
   });
+
+  it('increases influence when 2 HQ influence zones of the same gang overlap', () => {
+    const prng = createPrng(1234);
+    const state = createInitialWorld(prng);
+
+    // Setup a gang with two HQs in Europe:
+    // HQ1 at (200, 300) and HQ2 at (360, 300) (distance = 160px < 260px radius)
+    // Midway point is (280, 300):
+    // Distance from HQ1 is 80px: raw heat1 = 1 - 80/260 = 0.692
+    // Distance from HQ2 is 80px: raw heat2 = 1 - 80/260 = 0.692
+    const dualHqState = {
+      ...state,
+      locations: {
+        HQ_1: {
+          id: 'HQ_1',
+          name: 'HQ West',
+          region: 'EUROPE' as const,
+          x: 200,
+          y: 300,
+          tileFamily: 'logistics-hub',
+          tileVariant: 'mk1',
+          kind: 'HQ' as const,
+          gangId: 'GANG_SYNERGY',
+          influenceRadius: 260,
+        },
+        HQ_2: {
+          id: 'HQ_2',
+          name: 'HQ East',
+          region: 'EUROPE' as const,
+          x: 360,
+          y: 300,
+          tileFamily: 'logistics-hub',
+          tileVariant: 'mk1',
+          kind: 'HQ' as const,
+          gangId: 'GANG_SYNERGY',
+          influenceRadius: 260,
+        },
+      },
+      gangs: {
+        GANG_SYNERGY: {
+          ...state.gangs['GANG_NEON_GILL'],
+          id: 'GANG_SYNERGY',
+          hqLocationIds: ['HQ_1', 'HQ_2'],
+        },
+      },
+    };
+
+    // Calculate influence with ONLY HQ_1:
+    const stateWithOnlyHq1 = {
+      ...dualHqState,
+      locations: { HQ_1: dualHqState.locations.HQ_1 },
+    };
+    const heatWithOnlyHq1 = getRawGangInfluenceInRegion(stateWithOnlyHq1, 'GANG_SYNERGY', 'EUROPE', 280, 300);
+
+    // Calculate influence with ONLY HQ_2:
+    const stateWithOnlyHq2 = {
+      ...dualHqState,
+      locations: { HQ_2: dualHqState.locations.HQ_2 },
+    };
+    const heatWithOnlyHq2 = getRawGangInfluenceInRegion(stateWithOnlyHq2, 'GANG_SYNERGY', 'EUROPE', 280, 300);
+
+    // Now calculate influence with BOTH HQs:
+    const combinedHeat = getRawGangInfluenceInRegion(dualHqState, 'GANG_SYNERGY', 'EUROPE', 280, 300);
+
+    // RULE: "2 hq influence zones, same gang, increase the influence"
+    expect(heatWithOnlyHq1).toBeCloseTo(0.692, 2);
+    expect(heatWithOnlyHq2).toBeCloseTo(0.692, 2);
+    expect(combinedHeat).toBeGreaterThan(heatWithOnlyHq1);
+    expect(combinedHeat).toBeGreaterThan(heatWithOnlyHq2);
+    // With synergy boost, combined heat is > 0.9!
+    expect(combinedHeat).toBeGreaterThan(0.9);
+  });
+
+  it('separates regions by water with 2-sided borders where HQ influence stops', () => {
+    const prng = createPrng(1234);
+    const state = createInitialWorld(prng);
+
+    // Test gang with an HQ close to the Mediterranean border in Europe: (500, 460)
+    const borderTestState = {
+      ...state,
+      locations: {
+        BORDER_HQ: {
+          id: 'BORDER_HQ',
+          name: 'Border HQ',
+          region: 'EUROPE' as const,
+          x: 500,
+          y: 460, // 25px away from Europe southern border at y=485
+          tileFamily: 'logistics-hub',
+          tileVariant: 'mk1',
+          kind: 'HQ' as const,
+          gangId: 'BORDER_GANG',
+          influenceRadius: 260,
+        },
+      },
+      gangs: {
+        BORDER_GANG: {
+          ...state.gangs['GANG_NEON_GILL'],
+          id: 'BORDER_GANG',
+          hqLocationIds: ['BORDER_HQ'],
+        },
+      },
+    };
+
+    // 1. Inside Europe near the border (y=475): heat is strong
+    const heatInsideEurope = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 475);
+    expect(heatInsideEurope).toBeGreaterThan(0.85);
+
+    // 2. In the Mediterranean Sea water (between y=485 and y=565, e.g. y=520):
+    // Strictly 0 because HQ influence stops at border!
+    const heatInMedWater = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 520);
+    expect(heatInMedWater).toBe(0);
+
+    // 3. Across the water in Africa (e.g. y=580):
+    // Even though Euclidean distance is only 120px (< 260px radius),
+    // because it's past the border, influence is strictly 0!
+    const heatInAfrica = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 580);
+    expect(heatInAfrica).toBe(0);
+
+    // 4. In the English Channel water (between y=160 and y=215, e.g. y=185):
+    const heatInChannelWater = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 185);
+    expect(heatInChannelWater).toBe(0);
+  });
 });
+

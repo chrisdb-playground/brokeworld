@@ -37,13 +37,44 @@ export function processScouts(
         !gang.discoveredNodeIds!.includes(loc.id)
     );
 
-    for (const cand of candidateNodes) {
-      // Must be in region where gang has presence (or candidate is an HQ for region expansion)
-      const heat = getEffectiveInfluenceHeat(state, gang.id, cand.x, cand.y);
-      const isEligibleHq = cand.kind === 'HQ'; // HQs can be scouted to expand into other regions
+    // Sort candidate nodes:
+    // If the gang already has local operations (recruiter or depot), cross-region HQ candidates
+    // are high-priority discoveries to chart gradual expansion across borders
+    const ownHqs = Object.values(state.locations).filter((l) => l.gangId === gang.id && l.kind === 'HQ');
+    const ownRegions = new Set(ownHqs.map((h) => h.region));
+    const hasLocalOps = (gang.recruiterLocationIds || []).length > 0 || (gang.depotLocationIds || []).length > 0;
 
-      if (heat >= 0.04 || isEligibleHq) {
-        // Scout discovers this candidate node
+    candidateNodes.sort((a, b) => {
+      const needsForwardHq = ownRegions.size < 2;
+      const isCrossHqA = needsForwardHq && a.kind === 'HQ' && !ownRegions.has(a.region);
+      const isCrossHqB = needsForwardHq && b.kind === 'HQ' && !ownRegions.has(b.region);
+      if (hasLocalOps && isCrossHqA !== isCrossHqB) {
+        return isCrossHqA ? -1 : 1;
+      }
+
+      const heatA = getEffectiveInfluenceHeat(state, gang.id, a.x, a.y);
+      const heatB = getEffectiveInfluenceHeat(state, gang.id, b.x, b.y);
+      if ((heatA >= 0.04) !== (heatB >= 0.04)) {
+        return heatA >= 0.04 ? -1 : 1;
+      }
+      const distA = ownHqs.length > 0 ? Math.min(...ownHqs.map((h) => Math.hypot(a.x - h.x, a.y - h.y))) : 9999;
+      const distB = ownHqs.length > 0 ? Math.min(...ownHqs.map((h) => Math.hypot(b.x - h.x, b.y - h.y))) : 9999;
+      return distA - distB;
+    });
+
+    for (const cand of candidateNodes) {
+      const heat = getEffectiveInfluenceHeat(state, gang.id, cand.x, cand.y);
+      let eligible = heat >= 0.04;
+
+      // Candidate HQs for gradual cross-region expansion:
+      // Eligible once gang has established local operations or saved sufficient cash
+      if (!eligible && cand.kind === 'HQ') {
+        if (hasLocalOps || gang.cash >= 2200) {
+          eligible = true;
+        }
+      }
+
+      if (eligible) {
         gang.discoveredNodeIds.push(cand.id);
 
         events.push({

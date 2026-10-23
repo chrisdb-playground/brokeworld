@@ -9,10 +9,75 @@ import type { SeededPrng } from './rng';
 import { hireHood } from './hoods';
 
 export const REGION_BOUNDS: Record<RegionId, { yMin: number; yMax: number }> = {
-  UK: { yMin: -100, yMax: 205 },
-  EUROPE: { yMin: 205, yMax: 505 },
-  AFRICA: { yMin: 505, yMax: 800 },
+  UK: { yMin: -100, yMax: 160 },
+  EUROPE: { yMin: 215, yMax: 485 },
+  AFRICA: { yMin: 565, yMax: 820 },
 };
+
+export interface BorderSideDef {
+  name: string;
+  y: number;
+  type: 'EXIT' | 'ENTRY';
+  fromRegion: RegionId;
+  toRegion: RegionId;
+  label: string;
+}
+
+export interface WaterZoneDef {
+  id: string;
+  name: string;
+  yMin: number;
+  yMax: number;
+  northBorder: BorderSideDef;
+  southBorder: BorderSideDef;
+}
+
+export const WATER_ZONES: WaterZoneDef[] = [
+  {
+    id: 'ENGLISH_CHANNEL',
+    name: 'English Channel',
+    yMin: 160,
+    yMax: 215,
+    northBorder: {
+      name: 'UK Channel Perimeter',
+      y: 160,
+      type: 'ENTRY',
+      fromRegion: 'EUROPE',
+      toRegion: 'UK',
+      label: 'BORDER IN TO UK',
+    },
+    southBorder: {
+      name: 'Europe Channel Perimeter',
+      y: 215,
+      type: 'EXIT',
+      fromRegion: 'EUROPE',
+      toRegion: 'UK',
+      label: 'BORDER OUT OF EUROPE',
+    },
+  },
+  {
+    id: 'MEDITERRANEAN_SEA',
+    name: 'Mediterranean Sea',
+    yMin: 485,
+    yMax: 565,
+    northBorder: {
+      name: 'European Mediterranean Coast',
+      y: 485,
+      type: 'ENTRY',
+      fromRegion: 'AFRICA',
+      toRegion: 'EUROPE',
+      label: 'BORDER IN TO EUROPE',
+    },
+    southBorder: {
+      name: 'North Africa Maritime Coast',
+      y: 565,
+      type: 'EXIT',
+      fromRegion: 'AFRICA',
+      toRegion: 'EUROPE',
+      label: 'BORDER OUT OF AFRICA',
+    },
+  },
+];
 
 export const BASE_HQ_INFLUENCE_RADIUS = 260; // Base influence radius in px
 export const INITIAL_HQ_INFLUENCE_RADIUS = 220; // Starting influence radius for fresh HQs
@@ -26,11 +91,15 @@ export interface InfluenceCheckResult {
   heat: number;
 }
 
+export function isPointInWater(y: number): boolean {
+  return WATER_ZONES.some((w) => y >= w.yMin && y <= w.yMax);
+}
+
 export function getRegionForY(y: number): RegionId | null {
-  if (y >= REGION_BOUNDS.UK.yMin && y < REGION_BOUNDS.UK.yMax) {
+  if (y >= REGION_BOUNDS.UK.yMin && y <= REGION_BOUNDS.UK.yMax) {
     return 'UK';
   }
-  if (y >= REGION_BOUNDS.EUROPE.yMin && y < REGION_BOUNDS.EUROPE.yMax) {
+  if (y >= REGION_BOUNDS.EUROPE.yMin && y <= REGION_BOUNDS.EUROPE.yMax) {
     return 'EUROPE';
   }
   if (y >= REGION_BOUNDS.AFRICA.yMin && y <= REGION_BOUNDS.AFRICA.yMax) {
@@ -64,9 +133,34 @@ export function getRawHqHeat(
 }
 
 /**
+ * Combines influence heats from multiple HQs belonging to the same gang.
+ * RULE: "2 hq influence zones, same gang, increase the influence"
+ * When multiple HQs project influence into the same area, they reinforce each other!
+ */
+export function combineHqHeats(heats: number[]): number {
+  const activeHeats = heats.filter((h) => h > 0);
+  if (activeHeats.length === 0) return 0;
+  if (activeHeats.length === 1) return activeHeats[0];
+
+  let combined = 0;
+  for (const h of activeHeats) {
+    if (combined === 0) {
+      combined = h;
+    } else {
+      // Diminishing returns union + synergy resonance bonus
+      const union = combined + h - combined * h;
+      const synergyBonus = 0.15 * Math.min(combined, h);
+      combined = Math.min(1.0, union + synergyBonus);
+    }
+  }
+  return Math.min(1.0, Math.round(combined * 1000) / 1000);
+}
+
+/**
  * Returns raw influence of a gang in a specific region at point (x, y).
  * RULE: "heat map stops at border."
  * If point (x, y) is not in the specified region, influence is strictly 0.
+ * RULE: "2 hq influence zones, same gang, increase the influence"
  */
 export function getRawGangInfluenceInRegion(
   state: WorldSnapshot,
@@ -80,19 +174,48 @@ export function getRawGangInfluenceInRegion(
     return 0;
   }
 
-  // Find all HQs for this gang in this region
-  let maxRawHeat = 0;
+  // Find all HQs for this gang in this region and collect raw heats
+  const hqHeats: number[] = [];
   for (const loc of Object.values(state.locations)) {
     if (loc.gangId === gangId && loc.kind === 'HQ' && loc.region === region) {
       const hqRadius = loc.influenceRadius || radius;
       const h = getRawHqHeat(loc.x, loc.y, x, y, hqRadius);
-      if (h > maxRawHeat) {
-        maxRawHeat = h;
+      if (h > 0) {
+        hqHeats.push(h);
       }
     }
   }
 
-  return maxRawHeat;
+  return combineHqHeats(hqHeats);
+}
+
+/**
+ * Query helper to see if a point is reinforced by 2+ HQs of the same gang.
+ */
+export function getHqSynergyInfo(
+  state: WorldSnapshot,
+  gangId: string,
+  x: number,
+  y: number
+): { isSynergized: boolean; contributingHqCount: number; hqNames: string[] } {
+  const region = getRegionForY(y);
+  if (!region) return { isSynergized: false, contributingHqCount: 0, hqNames: [] };
+
+  const contributing: string[] = [];
+  for (const loc of Object.values(state.locations)) {
+    if (loc.gangId === gangId && loc.kind === 'HQ' && loc.region === region) {
+      const r = loc.influenceRadius || BASE_HQ_INFLUENCE_RADIUS;
+      if (getRawHqHeat(loc.x, loc.y, x, y, r) > 0) {
+        contributing.push(loc.name);
+      }
+    }
+  }
+
+  return {
+    isSynergized: contributing.length >= 2,
+    contributingHqCount: contributing.length,
+    hqNames: contributing,
+  };
 }
 
 /**
@@ -554,7 +677,7 @@ export function executeClaimCandidateNode(
   const gang = state.gangs[gangId];
   if (!gang) throw new Error(`Gang ${gangId} not found`);
 
-  const cost = loc.candidateCost || (loc.kind === 'HQ' ? 3500 : (loc.kind === 'WORKSHOP' ? 2500 : (loc.kind === 'DEPOT' ? 1500 : 1800)));
+  const cost = loc.candidateCost || (loc.kind === 'HQ' ? 2200 : (loc.kind === 'WORKSHOP' ? 2000 : (loc.kind === 'DEPOT' ? 1200 : 1500)));
   if (gang.cash < cost) throw new Error(`Insufficient funds: need $${cost}, has $${gang.cash}`);
 
   gang.cash -= cost;
@@ -617,7 +740,7 @@ export function canPurchaseBorderRoute(
   sourceRecruiterId: string,
   targetDepotId: string
 ): InfluenceCheckResult {
-  const cost = 1200;
+  const cost = 1000;
   const gang = state.gangs[gangId];
   if (!gang || gang.status !== 'ACTIVE') {
     return { allowed: false, cost, reason: 'Gang is not active', heat: 0 };
@@ -667,6 +790,7 @@ export function executePurchaseBorderRoute(
   const src = state.locations[sourceRecruiterId];
   const tgt = state.locations[targetDepotId];
   const connId = `CONN_${src.id}_${tgt.id}`;
+  const connKey = `CONN__${src.id}__${tgt.id}`;
   const routeId = `ROUTE_${gang.id}_${borderRouteSeq++}`;
 
   if (!state.connections[connId]) {
@@ -703,8 +827,8 @@ export function executePurchaseBorderRoute(
     assignedSkipperHoodId: skipper.id,
     operationalStatus: 'ACTIVE',
     capacity: 4,
-    price: 320,
-    durationTicks: 65,
+    price: 280,
+    durationTicks: 45,
     reliability: 0.98,
     status: 'ACTIVE',
     totalPassengers: 0,
@@ -717,7 +841,7 @@ export function executePurchaseBorderRoute(
 
   // Remove from discoveredRouteIds
   if (gang.discoveredRouteIds) {
-    gang.discoveredRouteIds = gang.discoveredRouteIds.filter((k) => k !== connId);
+    gang.discoveredRouteIds = gang.discoveredRouteIds.filter((k) => k !== connId && k !== connKey);
   }
 
   if (events) {
