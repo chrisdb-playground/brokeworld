@@ -38,58 +38,67 @@ if (loc.kind === 'WORKSHOP' && loc.tileFamily !== 'industrial-press') throw new 
 2. **Owner-Exclusivity for Commercial Operations**:
    - Only the gang that owns a `RECRUITER` node may sign up Chums waiting at that location.
    - Only the gang that owns both the source `RECRUITER` and the destination `DEPOT` may operate a route connecting them. Foreign gangs cannot lease or route through competitor nodes.
-3. **Regional HQs & Influence Zones**:
-   - Each active gang begins the simulation with an HQ in **each of the 3 regions** (`AFRICA`, `EUROPE`, `UK`).
-   - The European HQ serves as the **Primary Main HQ** (`isMainHq: true`), housing the gang's Capo and reserve hoods on standby.
-   - Additional regional branch HQs can be purchased ($4,000).
+3. **Single Main HQ Start & Gradual Expansion**:
+   - Each active gang begins the simulation with **only a single Main HQ** in its home region:
+     - `HQ_NEON` (Neon Gill Syndicate): West Europe (`140, 430`)
+     - `HQ_CRIMSON` (Crimson Claw): Central Europe (`560, 430`)
+     - `HQ_AMBER_AFRICA` (Amber Fin Cartel): North Africa (`980, 1000`)
+   - All other operational nodes across the globe begin unowned (`gangId: 'NEUTRAL'`).
+   - Additional regional branch HQs and nodes must be scouted and purchased ($4,000 for HQ) inside the gang's active influence zones.
+4. **Map Canvas Visibility Rule**:
+   - **Unowned / candidate nodes are NOT visible on the map canvas**: To keep the initial world uncluttered and authentic to the "start with a single node and expand" design, only owned nodes belonging to currently selected active gangs are rendered.
+   - When a gang purchases or claims a node, it becomes visible with its gang colorway and halo.
 
 ---
 
 ## ⚡ HQ Influence Zones & The Heat Map
 
-Every gang HQ projects an area of influence (**Influence Zone / Heat Map**):
+For full mathematical specifications, see **[Influence Zones & Heat Map Documentation](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/influence.md)**.
 
 1. **Influence Dissipation**:
-   - Influence heat is maximum ($1.0$, 100%) at the HQ epicenter and dissipates linearly with Euclidean distance up to a base radius of $R = 260\text{px}$.
-   - Formula: $\text{heat}(d) = 1.0 - (d / R)$ for $d \le R$; otherwise $0.0$.
+   - Heat is $1.0$ (100%) at HQ epicenter and dissipates linearly with Euclidean distance up to radius $R$ (starting $220\text{px}$, base $260\text{px}$, max $350\text{px}$).
 2. **Strict Regional Border Cutoff**:
-   - **Heat maps strictly stop at international/maritime borders**: An HQ located in Europe projects zero influence into North Africa or the United Kingdom, even if the physical distance is within $260\text{px}$.
-   - **Rule**: *To acquire operational nodes in a region, a gang must first own or purchase an HQ in that region.*
-3. **Rival Gang Restriction & Slight Overlap**:
-   - Rival gang HQs restrict and push back each other's influence zones.
-   - A damped restriction factor ($\alpha = 0.65$) allows a slight, contested overlap buffer at the border where both gangs hold positive influence, while strong proximity to a rival HQ completely snuffs out competitor influence.
-4. **Acquisition Gating & Future Stats Multiplier**:
+   - Heat maps strictly stop at international borders and water corridors. Influence NEVER bleeds into oceanic straits or neighboring regions.
+3. **Multi-HQ Synergy Boost**:
+   - When 2+ HQs of the same gang overlap within the same region, their influence zones reinforce each other (`combineHqHeats`), boosting heat density.
+4. **Rival Pushback with Slight Overlap**:
+   - Competitor HQs restrict rival influence ($\alpha = 0.65$), creating a contested midpoint buffer.
+5. **Acquisition Gating**:
    - Operational nodes (`RECRUITER`, `DEPOT`, `WORKSHOP`) can **only be purchased inside an active HQ heat map** ($\text{heat} \ge 0.05$).
-   - Nodes gain a stats multiplier based on proximity heat: $\text{multiplier} = 1.0 + 0.5 \times \text{heat}$.
-5. **Interactive UI Representation**:
-   - Visualized on the world map with darker, saturated color tinting near the HQ that smoothly dissipates with distance.
-   - View is toggleable via the HUD button `🔥 Influence` or hotkeys `I` and `H`.
 
 ---
 
 ## 🌍 Regional Hierarchy & Migration Flow
 
-The world map is divided into three geographical tiers. Migration flows strictly in a South-to-North direction:
+The world map is divided into three geographical landmasses separated by oceanic corridors:
+
+| Region | Coordinates ($Y$-axis) | Role & Permitted Nodes |
+| :--- | :--- | :--- |
+| **`UK`** | `[-150, 140]` | Final destination sanctuary. Terminus `DEPOT` nodes and forward `HQ`s. |
+| **English Channel (Water)** | `[140, 280]` (140px tall) | Oceanic strait. North border IN to UK (`y=140`); South border OUT of Europe (`y=280`). |
+| **`EUROPE`** | `[280, 660]` | Central transit & destination hub. Receives Mediterranean voyages in `DEPOT`s; hosts `WORKSHOP`s and Channel departure `RECRUITER`s. |
+| **Mediterranean Sea (Water)**| `[660, 860]` (200px tall) | Expansive marine corridor. North border IN to Europe (`y=660`); South border OUT of Africa (`y=860`). |
+| **`AFRICA`** | `[860, 1180]` | Origin territory. Chums spawn here and depart via Mediterranean `RECRUITER`s. |
 
 ```mermaid
 flowchart TD
-    subgraph AFRICA ["1. AFRICA (Origin Only)"]
+    subgraph AFRICA ["1. AFRICA (Origin Only: y = 860 to 1180)"]
         A_REC["RECRUITER (Crusher mk3)\ne.g. Tripoli, Alexandria, Tangier"]
     end
 
-    subgraph EUROPE ["2. EUROPE (Transit / Origin / Destination)"]
-        E_DEPOT["DEPOT (Pressure Tank mk1)\ne.g. Marseille, Madrid, Genoa"]
+    subgraph EUROPE ["2. EUROPE (Transit / Destination: y = 280 to 660)"]
+        E_DEPOT["DEPOT (Pressure Tank mk1)\ne.g. Marseille, Barcelona, Genoa"]
         E_HQ["HQ (Logistics Hub mk1)"]
         E_WS["WORKSHOP (Industrial Press)"]
         E_REC["RECRUITER (Crusher mk3)\ne.g. Calais, Dunkirk, Cherbourg"]
     end
 
-    subgraph UK ["3. UNITED KINGDOM (Final Destination)"]
-        UK_DEPOT["DEPOT (Pressure Tank mk1)\ne.g. Dover, Folkestone, Portsmouth"]
+    subgraph UK ["3. UNITED KINGDOM (Final Sanctuary: y = -150 to 140)"]
+        UK_DEPOT["DEPOT (Pressure Tank mk1)\ne.g. Dover, Thames, Portsmouth"]
     end
 
-    A_REC -- "Cross-Border Sea Route (Mediterranean)" --> E_DEPOT
-    E_REC -- "Cross-Border Sea Route (English Channel)" --> UK_DEPOT
+    A_REC -- "Mediterranean Sea Corridor (200px)" --> E_DEPOT
+    E_REC -- "English Channel Corridor (140px)" --> UK_DEPOT
 ```
 
 ### Regional Role Constraints

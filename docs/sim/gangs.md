@@ -13,11 +13,13 @@ Source code reference:
 
 Each syndicate maintains a distinct brand identity, color scheme, emblem symbol, and operating territory:
 
-| Gang ID | Name | Color | Hex | Emblem | Starting Cash | Starting Rep |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: |
-| **`GANG_NEON_GILL`** | Neon Gill Syndicate | Cyan | `#06b6d4` | `✦` | `$18,000` | 75 / 100 |
-| **`GANG_CRIMSON_CLAW`** | Crimson Claw | Red | `#ef4444` | `▲` | `$19,000` | 70 / 100 |
-| **`GANG_AMBER_FIN`** | Amber Fin Cartel | Amber | `#f59e0b` | `◆` | `$20,000` | 80 / 100 |
+| Gang ID | Name | Color | Hex | Emblem | Starting Main HQ | Starting Cash | Starting Rep |
+| :--- | :--- | :--- | :---: | :---: | :--- | :---: | :---: |
+| **`GANG_NEON_GILL`** | Neon Gill Syndicate | Cyan | `#06b6d4` | `✦` | `HQ_NEON` (West Europe) | `$10,000` | 75 / 100 |
+| **`GANG_CRIMSON_CLAW`** | Crimson Claw | Red | `#ef4444` | `▲` | `HQ_CRIMSON` (Central Europe) | `$10,000` | 70 / 100 |
+| **`GANG_AMBER_FIN`** | Amber Fin Cartel | Amber | `#f59e0b` | `◆` | `HQ_AMBER_AFRICA` (North Africa) | `$10,000` | 80 / 100 |
+
+> **Single-Node Start Principle**: Gangs start with **only their single Main HQ** and an initial treasury pot. All other nodes and routes across the world start unowned and must be scouted, purchased, and built up gradually.
 
 ### Reserve Syndicates (Revitalization Pool)
 If syndicate bankruptcies reduce the active gang count below 2, reserve syndicates are autonomously founded:
@@ -28,23 +30,23 @@ If syndicate bankruptcies reduce the active gang count below 2, reserve syndicat
 
 ## 🧠 Autonomous AI Decision Loop
 
-Every gang periodically reviews its finances, infrastructure, and route health in [`processGangAI()`](file:///c:/Users/chris/src/playground/chumworld/src/sim/ai.ts#L11).
+Every gang periodically reviews its finances, staff, and expansion priorities in [`processGangAI()`](file:///c:/Users/chris/src/playground/chumworld/src/sim/ai.ts#L11).
 
 ### Evaluation Frequency
-- **Review Period**: Evaluated every **60 ticks** (`tick % 60 === 0`), equivalent to 6 game days (~9 real seconds at 1× speed).
+- **Review Period**: Evaluated every **40 ticks** (`tick % 40 === 0`), equivalent to 4 game days (~6 real seconds at 1× speed).
 - Rate-limiting prevents rapid economic swings and gives players time to observe cause and effect.
 
 ```mermaid
 graph TD
-    A[Tick % 60 == 0] --> B[Deduct Recurring Upkeep]
-    B --> C{Treasury < -$6,000?}
-    C -- Yes --> D[Declare BANKRUPT & Close Routes]
-    C -- No --> E{Any Missing Recruiter->Depot Routes?}
-    E -- Yes & Cash >= $1500 --> F[Re-establish Route: Spend $1,200]
-    E -- No --> G{Active Gangs < 2?}
-    F --> G
-    G -- Yes --> H[Revitalize: Found Backup Syndicate]
-    G -- No --> I[End AI Review]
+    A[Tick % 40 == 0] --> B[1. Ensure Nodes & Routes Staffed with Hoods]
+    B --> C[2. Ensure Active Scout Hood Exists]
+    C --> D{Treasury < -$6,000?}
+    D -- Yes --> E[Declare BANKRUPT & Close Routes]
+    D -- No --> F[3. Purchase Discovered Routes: Top Priority]
+    F --> G[4. Purchase Discovered Candidate Nodes: By Priority]
+    G --> H{Active Gangs < 2?}
+    H -- Yes --> I[Revitalize: Found Backup Syndicate with 1 HQ]
+    H -- No --> J[End AI Review]
 ```
 
 ---
@@ -52,8 +54,9 @@ graph TD
 ## 💵 Economic Balance & Upkeep Formula
 
 ### 1. Fixed and Variable Operational Upkeep
-On every 60-tick review cycle, active syndicates pay operating costs:
-$$\text{Total Upkeep} = \$45\ (\text{base HQ overhead}) + (\$30 \times \text{number of active routes})$$
+Active syndicates pay wages and operational expenses:
+$$\text{Wage Bill} = \$15 \times \text{number of active employed Hoods}$$
+At start, each gang maintains 1 HQ Boss + 1 Scout Hood = **`$30`** base overhead.
 
 ### 2. Revenue Inflow
 - Each time a Chumigrant signs a travel contract at an owned `RECRUITER` node, the ticket price ($270 to $350) is deposited directly into the gang's cash reserve:
@@ -77,11 +80,11 @@ $$\text{Total Upkeep} = \$45\ (\text{base HQ overhead}) + (\$30 \times \text{num
 To ensure the world remains vibrant and self-sustaining across long soak runs:
 1. When active gangs drop below 2 (`activeGangs.length < 2`), the AI checks the reserve syndicate pool.
 2. The AI provisions the newly activated syndicate with:
-   - Starting treasury of **`$18,000`** and reputation of **`75`**.
-   - An `HQ` (Logistics Hub) and `WORKSHOP` (Industrial Press) in Europe.
-   - A `RECRUITER` in Africa and a `DEPOT` in Europe (with connecting Sea Route).
-   - A `RECRUITER` in Europe and a `DEPOT` in the UK (with connecting Channel Route).
-3. The new syndicate immediately begins competing in the travel market.
+   - Starting treasury of **`$10,000`** and reputation of **`75`**.
+   - A single `HQ` (Logistics Hub) in Europe (`isMainHq: true`).
+   - 1 `HQ_BOSS` and 1 `SCOUT` Hood.
+   - **Zero pre-built infrastructure**: The replacement gang starts from a single node and builds up gradually, just like the starting gangs.
+3. The new syndicate begins scouting and competing in the travel market.
 
 ---
 

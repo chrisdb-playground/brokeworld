@@ -19,9 +19,11 @@ A syndicate cannot operate autonomously without its workforce of Chum Hoods:
 2. **Voyages require a Hood**:
    Every voyage dispatched across the Mediterranean or English Channel requires an assigned Hood acting as `VOYAGE_SKIPPER`. Voyages cannot launch without a skipper.
 3. **Nodes require management**:
-   Gang `HQ`, `WORKSHOP`, and `DEPOT` facilities require dedicated Hoods (`HQ_BOSS`, `WORKSHOP_MECHANIC`, `DEPOT_GUARD`) to oversee security and fleet readiness.
-4. **Hiring Cost Policy**:
-   Currently, syndicates hire Hoods free of monetary charge (`"for now gangs just hire hoods no money for now"`). Hoods are automatically provisioned on world initialization, during AI expansion, and on-demand when launching voyages.
+   Gang `HQ`, `WORKSHOP`, and `DEPOT` facilities require dedicated Hoods (`HQ_BOSS`, `WORKSHOP_MECHANIC`, `DEPOT_GUARD`) to oversee security, growth, and fleet readiness.
+4. **Scouts enable expansion**:
+   Every gang employs at least 1 `SCOUT` Hood to survey candidate plots within its influence zone and discover cross-border route opportunities.
+5. **Wages & Compensation**:
+   Each employed Hood earns **`$15/tick`** recurring wage. Hiring a new operative requires a **`$150`** signing bonus.
 
 ---
 
@@ -29,7 +31,8 @@ A syndicate cannot operate autonomously without its workforce of Chum Hoods:
 
 | Role | Default Assignment | Function & Activity |
 | :--- | :--- | :--- |
-| **`HQ_BOSS`** | `MANAGE_NODE` (HQ location) | Directs high-level syndicate operations and monitors treasury. |
+| **`HQ_BOSS`** | `MANAGE_NODE` (HQ location) | Directs high-level syndicate operations, monitors treasury, and expands influence radius. |
+| **`SCOUT`** | `SCOUT_ZONE` (HQ location) | Surveys candidate plots and cross-border route opportunities for gang expansion. |
 | **`RECRUITER_MANAGER`** | `MANAGE_NODE` (Recruiter location) | Manages ticket desk and recruits waiting Chumigrants. |
 | **`DEPOT_GUARD`** | `MANAGE_NODE` (Depot location) | Secures safehouse and oversees permanently housed Chums. |
 | **`WORKSHOP_MECHANIC`** | `MANAGE_NODE` (Workshop location) | Maintains smuggling vessels and mechanical equipment. |
