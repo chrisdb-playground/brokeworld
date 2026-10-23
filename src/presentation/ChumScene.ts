@@ -279,15 +279,15 @@ export class ChumScene extends Phaser.Scene {
 
   create() {
     // 0. Sandy Floor / Background TileSprite
-    this.floorTile = this.add.tileSprite(600, 360, 4200, 2600, 'sandy_floor').setDepth(0);
+    this.floorTile = this.add.tileSprite(600, 500, 4200, 3200, 'sandy_floor').setDepth(0);
 
     // 0.5. Water Tile Sprites separating regions
-    // English Channel Water (y: 160 to 215, height: 55px, center: 187.5)
-    this.channelWaterTile = this.add.tileSprite(600, 187.5, 4200, 55, 'water_tile').setDepth(0.5);
+    // English Channel Water (y: 140 to 280, height: 140px, center: 210)
+    this.channelWaterTile = this.add.tileSprite(600, 210, 4200, 140, 'water_tile').setDepth(0.5);
     this.channelWaterTile.setAlpha(0.92);
 
-    // Mediterranean Sea Water (y: 485 to 565, height: 80px, center: 525)
-    this.medWaterTile = this.add.tileSprite(600, 525, 4200, 80, 'water_tile').setDepth(0.5);
+    // Mediterranean Sea Water (y: 660 to 860, height: 200px, center: 760)
+    this.medWaterTile = this.add.tileSprite(600, 760, 4200, 200, 'water_tile').setDepth(0.5);
     this.medWaterTile.setAlpha(0.92);
 
     // 1. Graphics layers in depth order
@@ -344,9 +344,9 @@ export class ChumScene extends Phaser.Scene {
       this.renderWorld(snapshot);
     });
 
-    // Center camera on world center for spread out layout
-    this.cameras.main.centerOn(600, 370);
-    this.cameras.main.setZoom(0.92);
+    // Center camera on world center for spacious multi-region layout
+    this.cameras.main.centerOn(600, 500);
+    this.cameras.main.setZoom(0.74);
 
     // Mark scene as ready
     this.isSceneReady = true;
@@ -388,15 +388,15 @@ export class ChumScene extends Phaser.Scene {
 
     // 1. UK Region Title
     this.labelsContainer.add(
-      this.add.text(20, 25, '🇬🇧 UNITED KINGDOM (UK) — FINAL DESTINATION', {
+      this.add.text(20, -10, '🇬🇧 UNITED KINGDOM (UK) — FINAL DESTINATION', {
         ...titleStyle,
         color: '#38bdf8',
       })
     );
 
     // 2. English Channel Borders (2 Sides: IN to UK, OUT of Europe)
-    // Border IN to UK (North edge of channel at y = 160)
-    const ukBorderText = this.add.text(420, 148, '▼ BORDER IN TO UK — DOVER MARITIME ENTRY', {
+    // Border IN to UK (North edge of channel at y = 140)
+    const ukBorderText = this.add.text(420, 128, '▼ BORDER IN TO UK — DOVER MARITIME ENTRY', {
       ...borderStyle,
       color: '#38bdf8',
       backgroundColor: '#0c2a47ee',
@@ -405,17 +405,17 @@ export class ChumScene extends Phaser.Scene {
     this.labelsContainer.add(ukBorderText);
 
     // Center Channel Water Label
-    const channelSeaText = this.add.text(420, 187.5, '🌊 ENGLISH CHANNEL MARITIME CORRIDOR — WATER PASSAGE TO UK', {
+    const channelSeaText = this.add.text(420, 210, '🌊 ENGLISH CHANNEL MARITIME CORRIDOR — WATER PASSAGE TO UK', {
       ...borderStyle,
-      fontSize: '10px',
+      fontSize: '11px',
       color: '#7dd3fc',
       backgroundColor: '#0369a199',
     });
     channelSeaText.setOrigin(0.5, 0.5);
     this.labelsContainer.add(channelSeaText);
 
-    // Border OUT of Europe (South edge of channel at y = 215)
-    const eurNorthBorderText = this.add.text(420, 227, '▲ BORDER OUT OF EUROPE — CHANNEL DEPARTURE PERIMETER', {
+    // Border OUT of Europe (South edge of channel at y = 280)
+    const eurNorthBorderText = this.add.text(420, 292, '▲ BORDER OUT OF EUROPE — CHANNEL DEPARTURE PERIMETER', {
       ...borderStyle,
       color: '#4ade80',
       backgroundColor: '#064e3bee',
@@ -425,15 +425,15 @@ export class ChumScene extends Phaser.Scene {
 
     // 3. West Europe Region Title
     this.labelsContainer.add(
-      this.add.text(20, 235, '🇪🇺 WEST EUROPE — TRANSIT & DESTINATION', {
+      this.add.text(20, 300, '🇪🇺 WEST EUROPE — TRANSIT & DESTINATION', {
         ...titleStyle,
         color: '#4ade80',
       })
     );
 
     // 4. Mediterranean Sea Borders (2 Sides: IN to Europe, OUT of Africa)
-    // Border IN to Europe (North edge of Mediterranean at y = 485)
-    const eurSouthBorderText = this.add.text(420, 473, '▼ BORDER IN TO EUROPE — MEDITERRANEAN ENTRY CHECKPOINT', {
+    // Border IN to Europe (North edge of Mediterranean at y = 660)
+    const eurSouthBorderText = this.add.text(420, 648, '▼ BORDER IN TO EUROPE — MEDITERRANEAN ENTRY CHECKPOINT', {
       ...borderStyle,
       color: '#4ade80',
       backgroundColor: '#064e3bee',
@@ -442,17 +442,17 @@ export class ChumScene extends Phaser.Scene {
     this.labelsContainer.add(eurSouthBorderText);
 
     // Center Mediterranean Sea Label
-    const medSeaText = this.add.text(420, 525, '🌊 MEDITERRANEAN SEA WATERS — CROSS-BORDER BOAT CORRIDOR', {
+    const medSeaText = this.add.text(420, 760, '🌊 MEDITERRANEAN SEA WATERS — CROSS-BORDER BOAT CORRIDOR', {
       ...borderStyle,
-      fontSize: '10px',
+      fontSize: '11px',
       color: '#fde047',
       backgroundColor: '#854d0e99',
     });
     medSeaText.setOrigin(0.5, 0.5);
     this.labelsContainer.add(medSeaText);
 
-    // Border OUT of Africa (South edge of Mediterranean at y = 565)
-    const afrBorderText = this.add.text(420, 577, '▲ BORDER OUT OF AFRICA — MARITIME DEPARTURE BORDER', {
+    // Border OUT of Africa (South edge of Mediterranean at y = 860)
+    const afrBorderText = this.add.text(420, 872, '▲ BORDER OUT OF AFRICA — MARITIME DEPARTURE BORDER', {
       ...borderStyle,
       color: '#fb923c',
       backgroundColor: '#7c2d12ee',
@@ -462,7 +462,7 @@ export class ChumScene extends Phaser.Scene {
 
     // 5. North Africa Region Title
     this.labelsContainer.add(
-      this.add.text(20, 585, '🌍 NORTH AFRICA — CHUMIGRANT ORIGINS', {
+      this.add.text(20, 880, '🌍 NORTH AFRICA — CHUMIGRANT ORIGINS', {
         ...titleStyle,
         color: '#fb923c',
       })
@@ -887,64 +887,64 @@ export class ChumScene extends Phaser.Scene {
     // ==========================================
     // CHANNEL BORDERS (2 SIDES: IN TO UK, OUT OF EUROPE)
     // ==========================================
-    // North Side: Border IN to UK (y: 160)
+    // North Side: Border IN to UK (y: 140)
     bgBorder.fillStyle(0x0c4a6e, 0.45);
-    bgBorder.fillRect(startX, 154, worldW, 6);
+    bgBorder.fillRect(startX, 134, worldW, 6);
     bgBorder.lineStyle(3, 0x0284c7, 0.95);
-    bgBorder.lineBetween(startX, 160, startX + worldW, 160);
+    bgBorder.lineBetween(startX, 140, startX + worldW, 140);
     // Dashed security stripe on UK side
     bgBorder.lineStyle(2, 0x38bdf8, 0.85);
     for (let x = startX; x < startX + worldW; x += 24) {
-      bgBorder.lineBetween(x, 158, x + 14, 158);
+      bgBorder.lineBetween(x, 138, x + 14, 138);
     }
-    // Water shoreline foam line (water side at y = 161)
+    // Water shoreline foam line (water side at y = 141)
     bgBorder.lineStyle(1.5, 0xbae6fd, 0.55);
-    bgBorder.lineBetween(startX, 161, startX + worldW, 161);
+    bgBorder.lineBetween(startX, 141, startX + worldW, 141);
 
-    // South Side: Border OUT of Europe (y: 215)
+    // South Side: Border OUT of Europe (y: 280)
     bgBorder.fillStyle(0x064e3b, 0.45);
-    bgBorder.fillRect(startX, 215, worldW, 6);
+    bgBorder.fillRect(startX, 280, worldW, 6);
     bgBorder.lineStyle(3, 0x059669, 0.95);
-    bgBorder.lineBetween(startX, 215, startX + worldW, 215);
+    bgBorder.lineBetween(startX, 280, startX + worldW, 280);
     // Dashed hazard stripe on European side
     bgBorder.lineStyle(2, 0x4ade80, 0.85);
     for (let x = startX; x < startX + worldW; x += 24) {
-      bgBorder.lineBetween(x, 217, x + 14, 217);
+      bgBorder.lineBetween(x, 282, x + 14, 282);
     }
-    // Water shoreline foam line (water side at y = 214)
+    // Water shoreline foam line (water side at y = 279)
     bgBorder.lineStyle(1.5, 0xa7f3d0, 0.55);
-    bgBorder.lineBetween(startX, 214, startX + worldW, 214);
+    bgBorder.lineBetween(startX, 279, startX + worldW, 279);
 
     // ==========================================
     // MEDITERRANEAN BORDERS (2 SIDES: IN TO EUROPE, OUT OF AFRICA)
     // ==========================================
-    // North Side: Border IN to Europe (y: 485)
+    // North Side: Border IN to Europe (y: 660)
     bgBorder.fillStyle(0x064e3b, 0.45);
-    bgBorder.fillRect(startX, 479, worldW, 6);
+    bgBorder.fillRect(startX, 654, worldW, 6);
     bgBorder.lineStyle(3, 0x059669, 0.95);
-    bgBorder.lineBetween(startX, 485, startX + worldW, 485);
+    bgBorder.lineBetween(startX, 660, startX + worldW, 660);
     // Dashed Schengen security line
     bgBorder.lineStyle(2, 0x4ade80, 0.85);
     for (let x = startX; x < startX + worldW; x += 24) {
-      bgBorder.lineBetween(x, 483, x + 14, 483);
+      bgBorder.lineBetween(x, 658, x + 14, 658);
     }
-    // Shoreline foam line (water side at y = 486)
+    // Shoreline foam line (water side at y = 661)
     bgBorder.lineStyle(1.5, 0xa7f3d0, 0.55);
-    bgBorder.lineBetween(startX, 486, startX + worldW, 486);
+    bgBorder.lineBetween(startX, 661, startX + worldW, 661);
 
-    // South Side: Border OUT of Africa (y: 565)
+    // South Side: Border OUT of Africa (y: 860)
     bgBorder.fillStyle(0x7c2d12, 0.45);
-    bgBorder.fillRect(startX, 565, worldW, 6);
+    bgBorder.fillRect(startX, 860, worldW, 6);
     bgBorder.lineStyle(3, 0xd97706, 0.95);
-    bgBorder.lineBetween(startX, 565, startX + worldW, 565);
+    bgBorder.lineBetween(startX, 860, startX + worldW, 860);
     // Dashed departure perimeter stripe
     bgBorder.lineStyle(2, 0xfb923c, 0.85);
     for (let x = startX; x < startX + worldW; x += 24) {
-      bgBorder.lineBetween(x, 567, x + 14, 567);
+      bgBorder.lineBetween(x, 862, x + 14, 862);
     }
-    // Shoreline foam line (water side at y = 564)
+    // Shoreline foam line (water side at y = 859)
     bgBorder.lineStyle(1.5, 0xfde68a, 0.55);
-    bgBorder.lineBetween(startX, 564, startX + worldW, 564);
+    bgBorder.lineBetween(startX, 859, startX + worldW, 859);
   }
 
   private renderPhysicalConnections(snapshot: WorldSnapshot) {

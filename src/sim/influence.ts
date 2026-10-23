@@ -9,9 +9,9 @@ import type { SeededPrng } from './rng';
 import { hireHood } from './hoods';
 
 export const REGION_BOUNDS: Record<RegionId, { yMin: number; yMax: number }> = {
-  UK: { yMin: -100, yMax: 160 },
-  EUROPE: { yMin: 215, yMax: 485 },
-  AFRICA: { yMin: 565, yMax: 820 },
+  UK: { yMin: -150, yMax: 140 },
+  EUROPE: { yMin: 280, yMax: 660 },
+  AFRICA: { yMin: 860, yMax: 1180 },
 };
 
 export interface BorderSideDef {
@@ -36,11 +36,11 @@ export const WATER_ZONES: WaterZoneDef[] = [
   {
     id: 'ENGLISH_CHANNEL',
     name: 'English Channel',
-    yMin: 160,
-    yMax: 215,
+    yMin: 140,
+    yMax: 280,
     northBorder: {
       name: 'UK Channel Perimeter',
-      y: 160,
+      y: 140,
       type: 'ENTRY',
       fromRegion: 'EUROPE',
       toRegion: 'UK',
@@ -48,7 +48,7 @@ export const WATER_ZONES: WaterZoneDef[] = [
     },
     southBorder: {
       name: 'Europe Channel Perimeter',
-      y: 215,
+      y: 280,
       type: 'EXIT',
       fromRegion: 'EUROPE',
       toRegion: 'UK',
@@ -58,11 +58,11 @@ export const WATER_ZONES: WaterZoneDef[] = [
   {
     id: 'MEDITERRANEAN_SEA',
     name: 'Mediterranean Sea',
-    yMin: 485,
-    yMax: 565,
+    yMin: 660,
+    yMax: 860,
     northBorder: {
       name: 'European Mediterranean Coast',
-      y: 485,
+      y: 660,
       type: 'ENTRY',
       fromRegion: 'AFRICA',
       toRegion: 'EUROPE',
@@ -70,7 +70,7 @@ export const WATER_ZONES: WaterZoneDef[] = [
     },
     southBorder: {
       name: 'North Africa Maritime Coast',
-      y: 565,
+      y: 860,
       type: 'EXIT',
       fromRegion: 'AFRICA',
       toRegion: 'EUROPE',
