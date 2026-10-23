@@ -1,17 +1,17 @@
 # Simulation Rules: Invariants & Safety Guarantees
 
-In Chum World, **invariants** are strict, non-negotiable structural and logical assertions that must remain true after every single simulation tick.
+In Broke World, **invariants** are strict, non-negotiable structural and logical assertions that must remain true after every single simulation tick.
 
 Source code reference:
-- Implementation: [`invariants.ts`](file:///c:/Users/chris/src/playground/chumworld/src/sim/invariants.ts)
-- Tick execution: [`tick.ts`](file:///c:/Users/chris/src/playground/chumworld/src/sim/tick.ts#L48)
-- Soak test suite: [`soak.test.ts`](file:///c:/Users/chris/src/playground/chumworld/tests/soak.test.ts)
+- Implementation: [`invariants.ts`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/invariants.ts)
+- Tick execution: [`tick.ts`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/tick.ts#L48)
+- Soak test suite: [`soak.test.ts`](file:///c:/Users/chris/src/playground/brokeworld/tests/soak.test.ts)
 
 ---
 
 ## 🛡️ Formal Simulation Invariant Contract
 
-The function [`assertInvariants(state: WorldSnapshot)`](file:///c:/Users/chris/src/playground/chumworld/src/sim/invariants.ts#L3) runs on every discrete tick. If any of the following conditions fail, execution halts immediately with a descriptive error.
+The function [`assertInvariants(state: WorldSnapshot)`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/invariants.ts#L3) runs on every discrete tick. If any of the following conditions fail, execution halts immediately with a descriptive error.
 
 ### 1. Location & Node Invariants
 - **Permitted Kinds**: Location kinds must belong strictly to `['HQ', 'WORKSHOP', 'RECRUITER', 'DEPOT']`.
@@ -39,22 +39,22 @@ The function [`assertInvariants(state: WorldSnapshot)`](file:///c:/Users/chris/s
 - **Matching Endpoints**: The voyage's `sourceId` and `targetId` must match the referenced route's endpoints exactly.
 - **Directional Integrity**: Voyage source must be a `RECRUITER` and target must be a `DEPOT`.
 
-### 5. Chumigrant State & Placement Invariants
-- **Waiting Placement**: Any Chum with `status === 'WAITING'` must be physically located at a `RECRUITER` node.
-- **Arrived Placement**: Any Chum with `status === 'ARRIVED'` must be physically located at a `DEPOT` node.
+### 5. Migrant State & Placement Invariants
+- **Waiting Placement**: Any Migrant with `status === 'WAITING'` must be physically located at a `RECRUITER` node.
+- **Arrived Placement**: Any Migrant with `status === 'ARRIVED'` must be physically located at a `DEPOT` node.
 - **Regional Boundaries**:
   - `originRegion` must be in `['AFRICA', 'EUROPE']`.
   - `desiredRegion` must be in `['EUROPE', 'UK']`.
 
 ### 6. Population & Memory Bounds
-- **Non-Negative Population**: `state.stats.activeChums >= 0`. Active population can never drop below zero.
+- **Non-Negative Population**: `state.stats.activeMigrants >= 0`. Active population can never drop below zero.
 - **Event Buffer Truncation**: Event logs are bounded to a maximum of **100 events** (`state.events.length <= 100`) to guarantee zero memory leakage across thousands of ticks.
 
 ---
 
 ## 🧪 Soak Testing & Verification Standards
 
-Simulation stability is verified by continuous soak testing ([`soak.test.ts`](file:///c:/Users/chris/src/playground/chumworld/tests/soak.test.ts)):
+Simulation stability is verified by continuous soak testing ([`soak.test.ts`](file:///c:/Users/chris/src/playground/brokeworld/tests/soak.test.ts)):
 
 1. **Headless Execution**:
    The simulation runs headless for **2,500+ ticks** (~250 game days) without browser or DOM dependencies.

@@ -1,6 +1,6 @@
-# Chum World — Autonomous Smuggler Simulation
+# Broke World — Autonomous Smuggler Simulation
 
-Chum World is an autonomous, discrete-tick simulation and interactive visualizer modeling competitive migrant smuggling networks across three distinct geographical regions: North Africa, Western Europe, and the United Kingdom.
+Broke World is an autonomous, discrete-tick simulation and interactive visualizer modeling competitive migrant smuggling networks across three distinct geographical regions: North Africa, Western Europe, and the United Kingdom.
 
 ---
 
@@ -9,7 +9,7 @@ Chum World is an autonomous, discrete-tick simulation and interactive visualizer
 Run locally with standard Node tooling:
 
 ```bash
-# Install dependencies
+# Install dependencies (automatically imports sprites and audio assets from brokeworld-asset-pack1)
 npm install
 
 # Start local dev server
@@ -44,7 +44,7 @@ The web application runs on `http://localhost:5176/`.
 
 The map is partitioned into three land masses separated by wide animated oceanic corridors with 2-sided directional border checkpoints:
 
-- **🇬🇧 United Kingdom (`y = -150 to 140`)**: Final sanctuary destination for Chums. Contains terminus Depots and forward HQs.
+- **🇬🇧 United Kingdom (`y = -150 to 140`)**: Final sanctuary destination for Migrants. Contains terminus Depots and forward HQs.
 - **🌊 English Channel Corridor (`y = 140 to 280`, 140px tall)**:
   - North border (`y = 140`): `▼ BORDER IN TO UK — DOVER MARITIME ENTRY`
   - South border (`y = 280`): `▲ BORDER OUT OF EUROPE — CHANNEL DEPARTURE PERIMETER`
@@ -52,7 +52,7 @@ The map is partitioned into three land masses separated by wide animated oceanic
 - **🌊 Mediterranean Sea Corridor (`y = 660 to 860`, 200px tall)**:
   - North border (`y = 660`): `▼ BORDER IN TO EUROPE — MEDITERRANEAN ENTRY CHECKPOINT`
   - South border (`y = 860`): `▲ BORDER OUT OF AFRICA — MARITIME DEPARTURE BORDER`
-- **🌍 North Africa (`y = 860 to 1180`)**: Origin territory. Chums spawn here seeking passage across the Mediterranean.
+- **🌍 North Africa (`y = 860 to 1180`)**: Origin territory. Migrants spawn here seeking passage across the Mediterranean.
 
 ---
 
@@ -71,14 +71,14 @@ The map is partitioned into three land masses separated by wide animated oceanic
 
 ## 📚 Complete Simulation Documentation
 
-For detailed mathematical specifications and simulation rules, see the [`docs/sim/`](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/) directory:
+For detailed mathematical specifications and simulation rules, see the [`docs/sim/`](file:///c:/Users/Chris/src/playground/brokeworld/docs/sim/) directory:
 
-- **[Simulation Architecture Overview](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/README.md)**
-- **[Influence Zones & Territorial Expansion](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/influence.md)**
-- **[Nodes & Infrastructure](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/nodes.md)**
-- **[Gangs & Syndicate AI](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/gangs.md)**
-- **[Chum Hoods & Payroll](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/hoods.md)**
-- **[Routes & Services](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/routes.md)**
-- **[Voyages & Transport](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/voyages.md)**
-- **[Chumigrants Lifecycle](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/chums.md)**
-- **[Simulation Invariants](file:///c:/Users/Chris/src/playground/chumworld/docs/sim/invariants.md)**
+- **[Simulation Architecture Overview](file:///c:/Users/Chris/src/playground/brokeworld/docs/sim/README.md)**
+- **[Influence Zones & Territorial Expansion](file:///c:/Users/Chris/src/playground/brokeworld/docs/sim/influence.md)**
+- **[Nodes & Infrastructure](file:///c:/Users/Chris/src/playground/brokeworld/docs/sim/nodes.md)**
+- **[Gangs & Syndicate AI](file:///c:/Users/Chris/src/playground/brokeworld/docs/sim/gangs.md)**
+- **[Hoods & Payroll](file:///c:/Users/Chris/src/playground/brokeworld/docs/sim/hoods.md)**
+- **[Routes & Services](file:///c:/Users/Chris/src/playground/brokeworld/docs/sim/routes.md)**
+- **[Voyages & Transport](file:///c:/Users/Chris/src/playground/brokeworld/docs/sim/voyages.md)**
+- **[Migrants Lifecycle](file:///c:/Users/Chris/src/playground/brokeworld/docs/sim/migrants.md)**
+- **[Simulation Invariants](file:///c:/Users/Chris/src/playground/brokeworld/docs/sim/invariants.md)**

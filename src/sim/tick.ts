@@ -1,6 +1,6 @@
 import type { SimCommand, SimEvent, WorldSnapshot } from './types';
 import type { SeededPrng } from './rng';
-import { spawnChumigrants } from './spawner';
+import { spawnMigrants } from './spawner';
 import { processRecruitment } from './recruitment';
 import { processVoyages } from './voyages';
 import { processGangAI } from './ai';
@@ -38,8 +38,8 @@ export function tickWorld(
   // 5. Dynamic Influence Ticking (HQ radius expands over time)
   tickInfluenceGrowth(state);
 
-  // 6. Chumigrant Spawning
-  spawnChumigrants(state, prng, newEvents);
+  // 6. Migrant Spawning
+  spawnMigrants(state, prng, newEvents);
 
   // 7. Gang AI Decisions (reviews operations, hires scouts, buys nodes & routes)
   processGangAI(state, prng, newEvents);

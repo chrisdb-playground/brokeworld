@@ -17,11 +17,11 @@ Build the autonomous observational MVP described by SPEC.md. Prioritize a runnin
 - Every active gang owns exactly one HQ node. HQ moves are out of scope.
 - Physical connections are separate from gang-owned *route services*. Many route services can share the same ordered pair of nodes, including different services from the same or different gangs.
 - Each voyage uses **exactly one** route service and goes from its source to its target. **No multi-hop journeys and no auto-transfers.**
-- A Chumigrant wants to travel to one destination node. It only boards a service if that service's target matches its desired destination, in the MVP.
+- A Migrant wants to travel to one destination node. It only boards a service if that service's target matches its desired destination, in the MVP.
 - Ownership is clearly visible in the map and inspectors, including when several routes overlap.
-- Gangs, operations, Chumigrants and routes appear / disappear gradually. No rapid oscillation or mass random churn.
-- Chum cops are abstract as regional pressure; no police units or tactical enforcement modelling.
-- Voyage failures are rare and have explicit outcomes. A failed journey never silently deletes its Chums.
+- Gangs, operations, Migrants and routes appear / disappear gradually. No rapid oscillation or mass random churn.
+- Migrant cops are abstract as regional pressure; no police units or tactical enforcement modelling.
+- Voyage failures are rare and have explicit outcomes. A failed journey never silently deletes its Migrants.
 - Observer mode: no player gang or player purchasing actions yet. Play/pause/speed/inspect only.
 
 ## Delivery standards

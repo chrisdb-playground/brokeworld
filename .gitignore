@@ -34,3 +34,8 @@ Thumbs.db
 .env.local
 .env.*.local
 *.local
+
+# Imported asset pack assets (imported on npm install)
+public/graphics/
+public/sandy.png
+public/water-tile.png

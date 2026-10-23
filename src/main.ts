@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { engine, scheduler } from './app/state';
-import { ChumScene } from './presentation/ChumScene';
+import { BrokeScene } from './presentation/BrokeScene';
 import { HudOverlay } from './presentation/HudOverlay';
 
 let hudOverlay: HudOverlay;
@@ -23,7 +23,7 @@ const config: Phaser.Types.Core.GameConfig = {
     roundPixels: true,
     mipmapFilter: 'LINEAR',
   },
-  scene: [ChumScene],
+  scene: [BrokeScene],
 };
 
 const game = new Phaser.Game(config);
@@ -34,7 +34,7 @@ window.addEventListener('resize', () => {
 
 // Connect Scene and DOM HUD once ready
 game.events.once('ready', () => {
-  const scene = game.scene.getScene('ChumScene') as ChumScene;
+  const scene = game.scene.getScene('BrokeScene') as BrokeScene;
   if (!scene) return;
 
   hudOverlay = new HudOverlay(engine, scheduler, {

@@ -6,7 +6,7 @@ import { processRecruitment } from '../src/sim/recruitment';
 import { LocalGameEngine } from '../src/app/GamePort';
 import { executeClaimCandidateNode, executePurchaseBorderRoute } from '../src/sim/influence';
 
-describe('Chum World Simulation Core', () => {
+describe('Broke World Simulation Core', () => {
   it('is completely deterministic across runs with the same seed', () => {
     const prng1 = createPrng(42);
     const prng2 = createPrng(42);
@@ -20,7 +20,7 @@ describe('Chum World Simulation Core', () => {
     }
 
     expect(state1.tick).toBe(state2.tick);
-    expect(state1.stats.activeChums).toBe(state2.stats.activeChums);
+    expect(state1.stats.activeMigrants).toBe(state2.stats.activeMigrants);
     expect(state1.stats.totalVoyagesLaunched).toBe(state2.stats.totalVoyagesLaunched);
     expect(Object.keys(state1.routes).length).toBe(Object.keys(state2.routes).length);
   });
@@ -56,19 +56,19 @@ describe('Chum World Simulation Core', () => {
     }
   });
 
-  it('guarantees Chumigrants have origins, appear at Recruiters, and routes connect 3 regions', () => {
+  it('guarantees Migrants have origins, appear at Recruiters, and routes connect 3 regions', () => {
     const engine = new LocalGameEngine(777);
     engine.advance(300);
     const state = engine.getSnapshot();
 
-    for (const chum of Object.values(state.chumigrants)) {
-      expect(chum.originName).toBeDefined();
-      expect(chum.originName.length).toBeGreaterThan(0);
-      expect(['AFRICA', 'EUROPE']).toContain(chum.originRegion);
-      expect(['EUROPE', 'UK']).toContain(chum.desiredRegion);
+    for (const migrant of Object.values(state.migrants)) {
+      expect(migrant.originName).toBeDefined();
+      expect(migrant.originName.length).toBeGreaterThan(0);
+      expect(['AFRICA', 'EUROPE']).toContain(migrant.originRegion);
+      expect(['EUROPE', 'UK']).toContain(migrant.desiredRegion);
 
-      if (chum.status === 'WAITING' || chum.status === 'RECRUITED') {
-        const origin = state.locations[chum.originId];
+      if (migrant.status === 'WAITING' || migrant.status === 'RECRUITED') {
+        const origin = state.locations[migrant.originId];
         expect(origin).toBeDefined();
         expect(origin.kind).toBe('RECRUITER');
         expect(origin.tileFamily).toBe('crusher');
@@ -97,7 +97,7 @@ describe('Chum World Simulation Core', () => {
     }
   });
 
-  it('leaves chumigrants remaining in the depot when a voyage completes', () => {
+  it('leaves migrants remaining in the depot when a voyage completes', () => {
     const prng = createPrng(888);
     const state = createInitialWorld(prng);
 
@@ -107,9 +107,9 @@ describe('Chum World Simulation Core', () => {
     const afrRoute = executePurchaseBorderRoute(state, 'GANG_NEON_GILL', rec.id, depot.id, prng);
     expect(afrRoute).toBeDefined();
 
-    // Create a Chum from Tripoli
-    const chum = {
-      id: 'CHUM_DEPOT_BOUND',
+    // Create a Migrant from Tripoli
+    const migrant = {
+      id: 'MIGRANT_DEPOT_BOUND',
       name: 'Farouk Fin',
       originName: 'Tripoli',
       originRegion: 'AFRICA' as const,
@@ -131,23 +131,23 @@ describe('Chum World Simulation Core', () => {
       },
       history: ['Originated in Tripoli'],
     };
-    state.chumigrants[chum.id] = chum;
-    state.stats.activeChums = 1;
+    state.migrants[migrant.id] = migrant;
+    state.stats.activeMigrants = 1;
 
-    const testChum = state.chumigrants['CHUM_DEPOT_BOUND'];
+    const testMigrant = state.migrants['MIGRANT_DEPOT_BOUND'];
 
     // Advance until first voyage completes
     for (let i = 0; i < 100; i++) {
       tickWorld(state, prng);
-      if (testChum.status === 'ARRIVED') {
+      if (testMigrant.status === 'ARRIVED') {
         break;
       }
     }
 
-    expect(testChum).toBeDefined();
-    // Rule: "when a voyage completes the chumigrants remain in the depot, just leave them there"
-    expect(testChum.status).toBe('ARRIVED');
-    const loc = state.locations[testChum.originId];
+    expect(testMigrant).toBeDefined();
+    // Rule: "when a voyage completes the migrants remain in the depot, just leave them there"
+    expect(testMigrant.status).toBe('ARRIVED');
+    const loc = state.locations[testMigrant.originId];
     expect(loc).toBeDefined();
     expect(loc.kind).toBe('DEPOT');
     expect(loc.id).toBe(afrRoute.targetId);
@@ -160,9 +160,9 @@ describe('Chum World Simulation Core', () => {
     const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_REC_NEON_AFR', prng);
     const depot = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_DEPOT_NEON_EUR', prng);
     const route = executePurchaseBorderRoute(state, 'GANG_NEON_GILL', rec.id, depot.id, prng);
-    const chum = {
-      id: 'CHUM_TEST_1',
-      name: 'Testy Chum',
+    const migrant = {
+      id: 'MIGRANT_TEST_1',
+      name: 'Testy Migrant',
       originName: 'Tangier',
       originRegion: 'AFRICA' as const,
       desiredRegion: 'EUROPE' as const,
@@ -183,15 +183,15 @@ describe('Chum World Simulation Core', () => {
       },
       history: [],
     };
-    state.chumigrants[chum.id] = chum;
-    state.stats.activeChums = 1;
+    state.migrants[migrant.id] = migrant;
+    state.stats.activeMigrants = 1;
 
     // Advance simulation until voyage launches and resolves
     for (let i = 0; i < 200; i++) {
       tickWorld(state, prng);
     }
 
-    const passenger = state.chumigrants['CHUM_TEST_1'];
+    const passenger = state.migrants['MIGRANT_TEST_1'];
     expect(passenger).toBeDefined();
     expect(['WAITING', 'ARRIVED', 'DEPARTED']).toContain(passenger.status);
     expect(passenger.history.length).toBeGreaterThan(0);
@@ -235,10 +235,10 @@ describe('Chum World Simulation Core', () => {
       state.hoods[oldHoodId].assignment = { type: 'IDLE_HQ', targetId: 'HQ_NEON', role: 'STANDBY' };
     }
 
-    // Add a waiting Chum at this unstaffed recruiter with plenty of cash
-    const chumId = 'CHUM_UNSTAFFED_TEST';
-    state.chumigrants[chumId] = {
-      id: chumId,
+    // Add a waiting Migrant at this unstaffed recruiter with plenty of cash
+    const migrantId = 'MIGRANT_UNSTAFFED_TEST';
+    state.migrants[migrantId] = {
+      id: migrantId,
       name: 'Unstaffed Pip',
       originName: 'Tripoli',
       originRegion: 'AFRICA',
@@ -262,11 +262,11 @@ describe('Chum World Simulation Core', () => {
     // Run recruitment - recruitment should be blocked because node has no managing Hood!
     processRecruitment(state, prng, []);
 
-    expect(state.chumigrants[chumId].status).toBe('WAITING');
-    expect(state.chumigrants[chumId].recruitedByGangId).toBeUndefined();
+    expect(state.migrants[migrantId].status).toBe('WAITING');
+    expect(state.migrants[migrantId].recruitedByGangId).toBeUndefined();
   });
 
-  it('establishes routes between depots and workshops in the same region and transfers chums via van voyages', () => {
+  it('establishes routes between depots and workshops in the same region and transfers migrants via van voyages', () => {
     const prng = createPrng(4242);
     const state = createInitialWorld(prng);
 
@@ -289,14 +289,14 @@ describe('Chum World Simulation Core', () => {
     const tgt = state.locations[depWsRoute!.targetId];
     expect(src.region).toBe(tgt.region);
 
-    // Populate Neon Depot with 6 arrived Chums
+    // Populate Neon Depot with 6 arrived Migrants
     const depRoute = depWsRoute!;
 
     for (let i = 1; i <= 6; i++) {
-      const cid = `CHUM_DEPOT_TEST_${i}`;
-      state.chumigrants[cid] = {
+      const cid = `MIGRANT_DEPOT_TEST_${i}`;
+      state.migrants[cid] = {
         id: cid,
-        name: `Depot Chum ${i}`,
+        name: `Depot Migrant ${i}`,
         originName: 'Tripoli',
         originRegion: 'AFRICA',
         desiredRegion: 'EUROPE',
@@ -341,8 +341,8 @@ describe('Chum World Simulation Core', () => {
       tickWorld(state, prng, []);
     }
 
-    // Verify that at least one Chum has now arrived at the Workshop!
-    const arrivedAtWorkshop = Object.values(state.chumigrants).filter(
+    // Verify that at least one Migrant has now arrived at the Workshop!
+    const arrivedAtWorkshop = Object.values(state.migrants).filter(
       (c) => c.originId === depRoute.targetId && c.status === 'ARRIVED'
     );
     expect(arrivedAtWorkshop.length).toBeGreaterThanOrEqual(1);

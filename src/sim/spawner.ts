@@ -1,4 +1,4 @@
-import type { ChumigrantState, SimEvent, WorldSnapshot } from './types';
+import type { MigrantState, SimEvent, WorldSnapshot } from './types';
 import type { SeededPrng } from './rng';
 
 const FIRST_NAMES = [
@@ -24,29 +24,29 @@ const EUROPE_ORIGINS = [
 const SKIN_TONES = ['#fed7aa', '#fef08a', '#cbd5e1', '#fbcfe8', '#bfdbfe', '#bbf7d0', '#fed7aa'];
 const SHIRT_COLORS = ['#94a3b8', '#38bdf8', '#fb923c', '#4ade80', '#818cf8', '#f472b6', '#facc15'];
 const HAIR_COLORS = ['#0f172a', '#78350f', '#d97706', '#94a3b8', '#b91c1c'];
-const EYE_TYPES: ChumigrantState['avatar']['eyesType'][] = ['dots', 'sleepy', 'wide', 'winking'];
-const MOUTH_TYPES: ChumigrantState['avatar']['mouthType'][] = ['smile', 'neutral', 'open', 'smile'];
-const HAIR_STYLES: ChumigrantState['avatar']['hairStyle'][] = ['bald', 'short', 'curly', 'beanie'];
-const LUGGAGE_TYPES: ChumigrantState['avatar']['luggage'][] = ['briefcase', 'backpack', 'bundle', 'none'];
+const EYE_TYPES: MigrantState['avatar']['eyesType'][] = ['dots', 'sleepy', 'wide', 'winking'];
+const MOUTH_TYPES: MigrantState['avatar']['mouthType'][] = ['smile', 'neutral', 'open', 'smile'];
+const HAIR_STYLES: MigrantState['avatar']['hairStyle'][] = ['bald', 'short', 'curly', 'beanie'];
+const LUGGAGE_TYPES: MigrantState['avatar']['luggage'][] = ['briefcase', 'backpack', 'bundle', 'none'];
 
-let chumSeq = 1;
+let migrantSeq = 1;
 
-export function resetChumSeq(val = 1) {
-  chumSeq = val;
+export function resetMigrantSeq(val = 1) {
+  migrantSeq = val;
 }
 
-export function spawnChumigrants(
+export function spawnMigrants(
   state: WorldSnapshot,
   prng: SeededPrng,
   events: SimEvent[]
 ): void {
-  const activeChums = Object.values(state.chumigrants).filter(
+  const activeMigrants = Object.values(state.migrants).filter(
     (c) => c.status === 'WAITING' || c.status === 'RECRUITED' || c.status === 'IN_TRANSIT'
   );
 
-  // Target population 24–36 active Chums
+  // Target population 24–36 active Migrants
   const targetPop = 30;
-  if (activeChums.length >= targetPop) {
+  if (activeMigrants.length >= targetPop) {
     return;
   }
 
@@ -71,7 +71,7 @@ export function spawnChumigrants(
     recNode = prng.pick(africaRecruiters);
     originName = prng.pick(AFRICA_ORIGINS);
     originRegion = 'AFRICA';
-    // Africa chums want to get to Europe or UK
+    // Africa migrants want to get to Europe or UK
     desiredRegion = prng.chance(0.5) ? 'EUROPE' : 'UK';
   } else {
     const europeRecruiters = Object.values(state.locations).filter(
@@ -81,16 +81,16 @@ export function spawnChumigrants(
     recNode = prng.pick(europeRecruiters);
     originName = prng.pick(EUROPE_ORIGINS);
     originRegion = 'EUROPE';
-    // Europe chums want to get to UK
+    // Europe migrants want to get to UK
     desiredRegion = 'UK';
   }
 
-  const id = `CHUM_${chumSeq++}`;
+  const id = `MIGRANT_${migrantSeq++}`;
   const firstName = prng.pick(FIRST_NAMES);
   const lastName = prng.pick(LAST_NAMES);
   const name = `${firstName} ${lastName}`;
 
-  const chum: ChumigrantState = {
+  const migrant: MigrantState = {
     id,
     name,
     originName,
@@ -114,13 +114,13 @@ export function spawnChumigrants(
     ],
   };
 
-  state.chumigrants[id] = chum;
-  state.stats.activeChums++;
+  state.migrants[id] = migrant;
+  state.stats.activeMigrants++;
 
   events.push({
     id: `EVT_SPAWN_${id}`,
     tick: state.tick,
-    type: 'CHUM_SPAWNED',
+    type: 'MIGRANT_SPAWNED',
     description: `${name} (${originName}, ${originRegion}) appeared at ${recNode.name} seeking passage to ${desiredRegion}.`,
     importance: 'LOW',
     locationId: recNode.id,

@@ -1,21 +1,21 @@
 # Simulation Rules: Routes & Services
 
-**Route Services** (represented by [`RouteServiceState`](file:///c:/Users/chris/src/playground/chumworld/src/sim/types.ts#L66-L81)) define active, gang-owned commercial transport operations across geographical physical connections.
+**Route Services** (represented by [`RouteServiceState`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/types.ts#L66-L81)) define active, gang-owned commercial transport operations across geographical physical connections.
 
 Source code reference:
-- Type definitions: [`RouteServiceState`](file:///c:/Users/chris/src/playground/chumworld/src/sim/types.ts#L66-L81) & [`PhysicalConnectionDef`](file:///c:/Users/chris/src/playground/chumworld/src/sim/types.ts#L19-L26)
-- Route initialization: [`createWorld.ts`](file:///c:/Users/chris/src/playground/chumworld/src/sim/createWorld.ts#L338-L438)
-- AI maintenance & re-establishment: [`ai.ts`](file:///c:/Users/chris/src/playground/chumworld/src/sim/ai.ts#L51-L120)
-- Invariant verification: [`invariants.ts`](file:///c:/Users/chris/src/playground/chumworld/src/sim/invariants.ts#L42-L66)
+- Type definitions: [`RouteServiceState`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/types.ts#L66-L81) & [`PhysicalConnectionDef`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/types.ts#L19-L26)
+- Route initialization: [`createWorld.ts`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/createWorld.ts#L338-L438)
+- AI maintenance & re-establishment: [`ai.ts`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/ai.ts#L51-L120)
+- Invariant verification: [`invariants.ts`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/invariants.ts#L42-L66)
 
 ---
 
 ## 🛤️ Core Operational Constraints
 
-Chum World strictly enforces four non-negotiable simulation rules for all route services:
+Broke World strictly enforces four non-negotiable simulation rules for all route services:
 
 ### 1. Permitted Route Topologies
-Chum World strictly permits two and only two route service topologies:
+Broke World strictly permits two and only two route service topologies:
 1. **Cross-Border Recruiter-to-Depot**:
    - `RECRUITER` ➔ `DEPOT` across regional borders (`isCrossBorder: true`, Mediterranean or Channel boat crossing).
 2. **Same-Region Depot-to-Workshop**:
@@ -65,7 +65,7 @@ const pairKey = `${route.sourceId}__${route.targetId}`;
 | **`sourceId`** | `string` | Origin `RECRUITER` node. | Crusher mk3 location |
 | **`targetId`** | `string` | Destination `DEPOT` node. | Pressure Tank mk1 location |
 | **`mode`** | `'BOAT' \| 'VAN'` | Vehicle mode (Sea crossings default to `BOAT`). | `'BOAT'` |
-| **`capacity`** | `number` | Maximum passengers per voyage batch. | `4` to `6` Chums |
+| **`capacity`** | `number` | Maximum passengers per voyage batch. | `4` to `6` Migrants |
 | **`price`** | `number` | Passenger ticket fare deducted upon sign-up. | `$270` to `$350` |
 | **`durationTicks`**| `number` | Ticks required for vehicle to traverse route. | `50` to `75` ticks (~5–7.5 game days) |
 | **`reliability`** | `number` | Base probability of successful arrival. | `0.96` to `0.98` (96%–98%) |
@@ -81,7 +81,7 @@ const pairKey = `${route.sourceId}__${route.targetId}`;
 Maintaining an active route network requires substantial recurring capital:
 
 ### Recurring Upkeep Formula
-During the syndicate AI review cycle (every 60 ticks in [`processGangAI()`](file:///c:/Users/chris/src/playground/chumworld/src/sim/ai.ts#L29)):
+During the syndicate AI review cycle (every 60 ticks in [`processGangAI()`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/ai.ts#L29)):
 $$\text{Upkeep} = \$45\ (\text{base headquarters overhead}) + (\$30 \times \text{number of active routes})$$
 
 If a gang cannot cover its operating debts and treasury falls below $-\$6,000$, bankruptcy triggers and all active routes transition to `'CLOSING'`.

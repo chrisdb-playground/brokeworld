@@ -1,6 +1,6 @@
 # Simulation Rules: Influence Zones & Heat Map
 
-The **Influence System** (implemented in [`src/sim/influence.ts`](file:///c:/Users/Chris/src/playground/chumworld/src/sim/influence.ts)) models regional territorial sovereignty, power projection, and expansion gating for all gangs in Chum World.
+The **Influence System** (implemented in [`src/sim/influence.ts`](file:///c:/Users/Chris/src/playground/brokeworld/src/sim/influence.ts)) models regional territorial sovereignty, power projection, and expansion gating for all gangs in Broke World.
 
 ---
 
@@ -47,7 +47,7 @@ $$\text{heat}_{\text{eff}} = \max\left(0, h_{\text{own}} - \alpha \times h_{\tex
 
 ## 🏗️ Gated Infrastructure Acquisition
 
-All infrastructure acquisition in Chum World is strictly gated by the Influence System:
+All infrastructure acquisition in Broke World is strictly gated by the Influence System:
 
 | Action | Cost | Regional Rule | Heat Map Rule | Clearance Rule |
 | :--- | :--- | :--- | :--- | :--- |
@@ -73,7 +73,7 @@ Y =  280 ═══════════════════════�
 Y =  660 ═══════════════════════════════════════════════ Border IN to Europe
          MEDITERRANEAN SEA WATER CORRIDOR (200px tall)
 Y =  860 ═══════════════════════════════════════════════ Border OUT of Africa
-         NORTH AFRICA — Chumigrant Origins
+         NORTH AFRICA — Migrant Origins
 Y = 1180 ─────────────────────────────────────────────── Bottom of Map
 ```
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { LocalGameEngine } from '../src/app/GamePort';
 import { assertInvariants } from '../src/sim/invariants';
 
-describe('Chum World Headless Soak Test', () => {
+describe('Broke World Headless Soak Test', () => {
   it('runs stably for 2500 ticks (~250 game days) with strictly maintained invariants', () => {
     const engine = new LocalGameEngine(2026);
 
@@ -14,8 +14,8 @@ describe('Chum World Headless Soak Test', () => {
       expect(() => assertInvariants(snapshot)).not.toThrow();
 
       // Population bounds
-      expect(snapshot.stats.activeChums).toBeGreaterThanOrEqual(0);
-      expect(snapshot.stats.activeChums).toBeLessThan(100);
+      expect(snapshot.stats.activeMigrants).toBeGreaterThanOrEqual(0);
+      expect(snapshot.stats.activeMigrants).toBeLessThan(100);
 
       // Event limit to avoid memory leaks
       expect(snapshot.events.length).toBeLessThanOrEqual(100);
@@ -27,6 +27,6 @@ describe('Chum World Headless Soak Test', () => {
 
     const finalState = engine.getSnapshot();
     expect(finalState.stats.totalVoyagesLaunched).toBeGreaterThan(10);
-    expect(finalState.stats.totalDepartedChums).toBeGreaterThan(5);
+    expect(finalState.stats.totalDepartedMigrants).toBeGreaterThan(5);
   });
 });

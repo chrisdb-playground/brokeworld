@@ -1,7 +1,7 @@
-# People Smuggler — Autonomous Chum World MVP
+# People Smuggler — Autonomous Broke World MVP
 
 ## 1. Goal
-Create a **self-running, entertaining-to-watch toy-world** in Phaser 4. Cute, simple Chums contrast with the deadpan corporate/criminal setting. There is **no player-controlled gang** yet. The first success criterion: watch gangs compete, add/remove operations, recruit Chumigrants, launch animated vehicle voyages, and see occasional failures while the world remains comprehensible and stable.
+Create a **self-running, entertaining-to-watch toy-world** in Phaser 4. Cute, simple Migrants contrast with the deadpan corporate/criminal setting. There is **no player-controlled gang** yet. The first success criterion: watch gangs compete, add/remove operations, recruit Migrants, launch animated vehicle voyages, and see occasional failures while the world remains comprehensible and stable.
 
 Keep this as a simulation experiment, not a complete strategy game. Real-world trafficking processes, border evasion and exploitation mechanics are **not** simulated in this MVP.
 
@@ -15,22 +15,22 @@ Keep this as a simulation experiment, not a complete strategy game. Real-world t
 - Regions have an abstract `copPressure` value; it can vary slowly and affect the probability of an abstract journey disruption. Do not model enforcement tactics.
 
 ## 3. Explicit rule: single-hop voyages
-A Chumigrant spawns at a geographical location, with a **directly reachable destination location** (select destination only from outgoing physical connections). They are willing to travel only there. A gang operating a recruiter at that location may sign them up; a voyage uses ONE available owned route whose origin and destination correspond to the Chumigrant's current location and desired destination.
+A Migrant spawns at a geographical location, with a **directly reachable destination location** (select destination only from outgoing physical connections). They are willing to travel only there. A gang operating a recruiter at that location may sign them up; a voyage uses ONE available owned route whose origin and destination correspond to the Migrant's current location and desired destination.
 
-**No graph pathfinding, no multi-leg itinerary, no intermediate nodes, no automatic transfers, no routing through HQ.** If no suitable route exists, the Chum waits or later leaves the world. A completed voyage finishes the Chum's migration objective and exits them from the active travel market; keep their history for inspection/events.
+**No graph pathfinding, no multi-leg itinerary, no intermediate nodes, no automatic transfers, no routing through HQ.** If no suitable route exists, the Migrant waits or later leaves the world. A completed voyage finishes the Migrant's migration objective and exits them from the active travel market; keep their history for inspection/events.
 
 ## 4. Autonomous loop
-1. Chumigrants appear occasionally based on a target active population; have persistent ID, cute visual appearance, origin, direct destination, cash, patience, and status.
+1. Migrants appear occasionally based on a target active population; have persistent ID, cute visual appearance, origin, direct destination, cash, patience, and status.
 2. Each gang periodically evaluates demand, finances, existing recruiter coverage, and existing route capacity, then may open a recruiter or route, retire an unprofitable operation, or conserve cash. Decisions should be explainable and rate-limited.
-3. Recruiters sign up Chumigrants at their location when compatible route services are available or expected; simple choice based on price/reputation/availability with bounded randomness. Gang operations compete to recruit the same population.
-4. A gang launches a voyage when there is at least one recruited Chum for a matching route, capacity is available, and service cooldown permits. Each voyage has one vehicle with a type-specific graphic (van/boat), manifest, explicit origin and target, departure tick and duration. Vehicles move smoothly on screen along the corresponding link. Multiple voyages can coexist.
+3. Recruiters sign up Migrants at their location when compatible route services are available or expected; simple choice based on price/reputation/availability with bounded randomness. Gang operations compete to recruit the same population.
+4. A gang launches a voyage when there is at least one recruited Migrant for a matching route, capacity is available, and service cooldown permits. Each voyage has one vehicle with a type-specific graphic (van/boat), manifest, explicit origin and target, departure tick and duration. Vehicles move smoothly on screen along the corresponding link. Multiple voyages can coexist.
 5. Most voyages arrive successfully. A small, configurable probability results in `DELAYED`, `CANCELLED`, or `INTERCEPTED` (abstract). On cancellation/interception passengers are returned to waiting / unavailable states, not deleted. Track outcome in histories, change gang finances/reputation accordingly.
-6. Travelled Chums depart active population after success, creating room for new arrivals. Slow economic changes and occasional closures mean the map evolves, rather than exploding with new routes.
+6. Travelled Migrants depart active population after success, creating room for new arrivals. Slow economic changes and occasional closures mean the map evolves, rather than exploding with new routes.
 
 ## 5. Default tuning targets (adjustable constants, not real-world estimates)
-- 2 regions; 8 locations; 3 initial gangs; 24–40 Chumigrants at steady state.
+- 2 regions; 8 locations; 3 initial gangs; 24–40 Migrants at steady state.
 - 1 game day = 1–2 real seconds at 1×, tunable; speed 1×, 5×, 20×, pause and step.
-- New Chums every few simulated days on average, up to an active-population cap; spawn randomness should not create storms.
+- New Migrants every few simulated days on average, up to an active-population cap; spawn randomness should not create storms.
 - Each gang reviews investments every 7 game days, with minimum 2–4 weeks between major expansions.
 - Gang entry/exit rare: e.g. at most one gang birth or dissolution over several game-months; impose global cooldowns.
 - Route open/close changes should be measured in weeks, not seconds. Upkeep and demand can drive decisions.
@@ -43,20 +43,20 @@ A Chumigrant spawns at a geographical location, with a **directly reachable dest
 - **Gang-owned routes are visibly coloured lines with a distinct ownership pattern**, drawn over the neutral geographic connection.
 - **Parallel route services MUST be individually visible and selectable**, even when they have identical source and destination. Render them as offset parallel curves / bundled lines, not on top of one another. Direction indicated with arrowheads, mode by dash/texture or a small boat/van icon. Width/opacity may encode capacity or utilization, but colour encodes owner.
 - When 2+ services share the same connection, make their offsets stable (sort by route ID), preserve colours, and support pointer selection/highlight of exactly one service. Consider selection cycling from a compact popover if lines become too close.
-- A vehicle on a voyage visibly travels **along its specific owning route's offset curve**, in its gang colour. Chums can be shown as tiny passengers or a `×N` badge, with a click-to-inspect manifest.
+- A vehicle on a voyage visibly travels **along its specific owning route's offset curve**, in its gang colour. Migrants can be shown as tiny passengers or a `×N` badge, with a click-to-inspect manifest.
 - Hover/click route: show owner, origin → destination, mode, capacity, active voyages, price, travel duration, reliability, finances and recent outcomes.
 - Closing a route visibly removes that coloured line after any active voyage has resolved; no stranded invisible vehicles.
 - Neutral physical connection remains visible when no gang owns a service; cross-border connections distinctly cross the border.
 - Include a gang legend that can isolate/highlight a gang's HQ, recruiters, services and voyages without mutating simulation state.
 
 ## 7. Observability
-- Inspect a Chum: origin, desired destination, recruiter, assigned gang, current state, voyage, short history.
+- Inspect a Migrant: origin, desired destination, recruiter, assigned gang, current state, voyage, short history.
 - Inspect gang: HQ, cash, reputation, recruiters, routes, active voyages, last 3 AI decisions with reasons.
-- Inspect location: region, present/queued Chums, gang recruiters, available routes.
+- Inspect location: region, present/queued Migrants, gang recruiters, available routes.
 - Inspect route: owner, explicit route ID, endpoints, ongoing voyages and performance.
 - Inspect vehicle/voyage: gang, route ID, manifest, progress, outcome.
-- Event feed: Chum spawned, gang founded/dissolved, recruiter opened/closed, route opened/closed, recruited, departed, arrived, delayed, intercepted. Filter clutter by prioritizing significant events and grouping minor repeats.
-- HUD: active Chums, gangs, route services, voyages, completed voyages, failures; current simulation day and time speed.
+- Event feed: Migrant spawned, gang founded/dissolved, recruiter opened/closed, route opened/closed, recruited, departed, arrived, delayed, intercepted. Filter clutter by prioritizing significant events and grouping minor repeats.
+- HUD: active Migrants, gangs, route services, voyages, completed voyages, failures; current simulation day and time speed.
 - Show a brief visual pulse when a new route or operation is acquired; do not interrupt the simulation with modal dialogs.
 
 ## 8. Simulation architecture

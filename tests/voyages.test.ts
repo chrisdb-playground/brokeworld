@@ -6,7 +6,7 @@ import {
   createMockGang,
   createMockLocation,
   createMockRoute,
-  createMockChum,
+  createMockMigrant,
   createMockHood,
   createMockVoyage,
 } from './factories';
@@ -69,7 +69,7 @@ describe('Voyage System (Isolated Unit Tests)', () => {
       reliability: 1.0, // Guaranteed 100% success for this test
       activeVoyageCount: 1,
     });
-    const chum = createMockChum({
+    const migrant = createMockMigrant({
       id: 'PASSENGER_1',
       originId: rec.id,
       status: 'IN_TRANSIT',
@@ -91,7 +91,7 @@ describe('Voyage System (Isolated Unit Tests)', () => {
       startTick: 0,
       progress: 0.98,
       status: 'IN_PROGRESS',
-      passengerIds: [chum.id],
+      passengerIds: [migrant.id],
       captainHoodId: skipper.id,
     });
 
@@ -101,7 +101,7 @@ describe('Voyage System (Isolated Unit Tests)', () => {
       locations: { [rec.id]: rec, [dep.id]: dep },
       routes: { [route.id]: route },
       hoods: { [skipper.id]: skipper },
-      chumigrants: { [chum.id]: chum },
+      migrants: { [migrant.id]: migrant },
       voyages: { [voyage.id]: voyage },
     });
 
@@ -110,8 +110,8 @@ describe('Voyage System (Isolated Unit Tests)', () => {
 
     expect(voyage.progress).toBe(1.0);
     expect(voyage.status).toBe('SUCCESS');
-    expect(chum.status).toBe('ARRIVED');
-    expect(chum.originId).toBe(dep.id);
+    expect(migrant.status).toBe('ARRIVED');
+    expect(migrant.originId).toBe(dep.id);
     expect(route.activeVoyageCount).toBe(0);
     expect(world.stats.totalVoyagesSuccess).toBe(1);
     expect(events.some((e) => e.type === 'VOYAGE_SUCCESS')).toBe(true);

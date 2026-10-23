@@ -1,5 +1,5 @@
 {
-  "name": "chumworld",
+  "name": "brokeworld",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,9 +9,11 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:soak": "vitest run tests/soak.test.ts"
+    "test:soak": "vitest run tests/soak.test.ts",
+    "postinstall": "node scripts/import-assets.mjs"
   },
   "dependencies": {
+    "brokeworld-asset-pack1": "git+ssh://git@github.com/chrisdb-playground/brokeworld-asset-pack1.git",
     "phaser": "^4.2.1"
   },
   "devDependencies": {

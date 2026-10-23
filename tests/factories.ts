@@ -3,17 +3,17 @@ import type {
   GangState,
   LocationDef,
   RouteServiceState,
-  ChumigrantState,
+  MigrantState,
   HoodState,
   VoyageState,
   PhysicalConnectionDef,
-  ChumAvatarSpec,
+  MigrantAvatarSpec,
   SimStats,
   RegionId,
   LocationKind,
 } from '../src/sim/types';
 
-export function createMockAvatar(overrides?: Partial<ChumAvatarSpec>): ChumAvatarSpec {
+export function createMockAvatar(overrides?: Partial<MigrantAvatarSpec>): MigrantAvatarSpec {
   return {
     skinTone: '#fcd34d',
     shirtColor: '#38bdf8',
@@ -116,11 +116,11 @@ export function createMockRoute(overrides?: Partial<RouteServiceState>): RouteSe
   };
 }
 
-export function createMockChum(overrides?: Partial<ChumigrantState>): ChumigrantState {
-  const id = overrides?.id || 'CHUM_MOCK_1';
+export function createMockMigrant(overrides?: Partial<MigrantState>): MigrantState {
+  const id = overrides?.id || 'MIGRANT_MOCK_1';
   return {
     id,
-    name: overrides?.name || 'Mock Chum',
+    name: overrides?.name || 'Mock Migrant',
     originName: overrides?.originName || 'Tripoli',
     originRegion: overrides?.originRegion || 'AFRICA',
     desiredRegion: overrides?.desiredRegion || 'EUROPE',
@@ -133,6 +133,7 @@ export function createMockChum(overrides?: Partial<ChumigrantState>): Chumigrant
     ...overrides,
   };
 }
+
 
 export function createMockHood(overrides?: Partial<HoodState>): HoodState {
   const id = overrides?.id || 'HOOD_MOCK_1';
@@ -176,8 +177,8 @@ export function createMockVoyage(overrides?: Partial<VoyageState>): VoyageState 
 
 export function createMockStats(overrides?: Partial<SimStats>): SimStats {
   return {
-    activeChums: 0,
-    totalDepartedChums: 0,
+    activeMigrants: 0,
+    totalDepartedMigrants: 0,
     totalVoyagesLaunched: 0,
     totalVoyagesSuccess: 0,
     totalVoyagesDisrupted: 0,
@@ -196,7 +197,7 @@ export function createMockWorld(overrides?: Partial<WorldSnapshot>): WorldSnapsh
     gangs: overrides?.gangs ?? {},
     operations: overrides?.operations ?? {},
     routes: overrides?.routes ?? {},
-    chumigrants: overrides?.chumigrants ?? {},
+    migrants: overrides?.migrants ?? {},
     voyages: overrides?.voyages ?? {},
     hoods: overrides?.hoods ?? {},
     events: overrides?.events ?? [],

@@ -527,8 +527,8 @@ button, .spd-btn, .btn-gang-action, .btn-build-action, .btn-close {
   user-select: none;
 }
 
-/* Chum Hero Box */
-.inspector-chum-hero {
+/* Migrant Hero Box */
+.inspector-migrant-hero {
   display: flex;
   gap: 12px;
   background: rgba(0, 0, 0, 0.3);
@@ -538,7 +538,7 @@ button, .spd-btn, .btn-gang-action, .btn-build-action, .btn-close {
   align-items: center;
 }
 
-.chum-avatar-box {
+.migrant-avatar-box {
   width: 90px;
   height: 100px;
   display: flex;
@@ -548,7 +548,7 @@ button, .spd-btn, .btn-gang-action, .btn-build-action, .btn-close {
   border-radius: 6px;
 }
 
-.chum-hero-info h3 {
+.migrant-hero-info h3 {
   font-size: 16px;
   color: #fff;
   font-weight: 700;
@@ -639,8 +639,8 @@ button, .spd-btn, .btn-gang-action, .btn-build-action, .btn-close {
   border-left: 2px solid var(--border-subtle);
 }
 
-/* Chums list in Location or Voyage */
-.chums-scroll-list {
+/* Migrants list in Location or Voyage */
+.migrants-scroll-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -648,7 +648,7 @@ button, .spd-btn, .btn-gang-action, .btn-build-action, .btn-close {
   overflow-y: auto;
 }
 
-.chum-row-item {
+.migrant-row-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -660,17 +660,17 @@ button, .spd-btn, .btn-gang-action, .btn-build-action, .btn-close {
   transition: all 0.15s ease;
 }
 
-.chum-row-item:hover {
+.migrant-row-item:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: var(--accent-cyan);
 }
 
-.chum-mini-avatar {
+.migrant-mini-avatar {
   width: 36px;
   height: 40px;
 }
 
-.chum-mini-info {
+.migrant-mini-info {
   flex: 1;
 }
 

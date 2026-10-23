@@ -103,31 +103,31 @@ export function assertInvariants(state: WorldSnapshot): void {
     }
   }
 
-  // 5. Chumigrants: waiting are at RECRUITER nodes; arrived are at DEPOT or WORKSHOP nodes
-  for (const chum of Object.values(state.chumigrants)) {
-    if (chum.status === 'WAITING') {
-      const loc = state.locations[chum.originId];
+  // 5. Migrants: waiting are at RECRUITER nodes; arrived are at DEPOT or WORKSHOP nodes
+  for (const migrant of Object.values(state.migrants)) {
+    if (migrant.status === 'WAITING') {
+      const loc = state.locations[migrant.originId];
       if (!loc || loc.kind !== 'RECRUITER') {
-        throw new Error(`Invariant failed: waiting chum ${chum.id} must be at a RECRUITER node`);
+        throw new Error(`Invariant failed: waiting migrant ${migrant.id} must be at a RECRUITER node`);
       }
     }
-    if (chum.status === 'ARRIVED') {
-      const loc = state.locations[chum.originId];
+    if (migrant.status === 'ARRIVED') {
+      const loc = state.locations[migrant.originId];
       if (!loc || (loc.kind !== 'DEPOT' && loc.kind !== 'WORKSHOP')) {
-        throw new Error(`Invariant failed: arrived chum ${chum.id} must be at a DEPOT or WORKSHOP node`);
+        throw new Error(`Invariant failed: arrived migrant ${migrant.id} must be at a DEPOT or WORKSHOP node`);
       }
     }
-    if (chum.originRegion && !['AFRICA', 'EUROPE'].includes(chum.originRegion)) {
-      throw new Error(`Invariant failed: chum ${chum.id} invalid originRegion ${chum.originRegion}`);
+    if (migrant.originRegion && !['AFRICA', 'EUROPE'].includes(migrant.originRegion)) {
+      throw new Error(`Invariant failed: migrant ${migrant.id} invalid originRegion ${migrant.originRegion}`);
     }
-    if (chum.desiredRegion && !['EUROPE', 'UK'].includes(chum.desiredRegion)) {
-      throw new Error(`Invariant failed: chum ${chum.id} invalid desiredRegion ${chum.desiredRegion}`);
+    if (migrant.desiredRegion && !['EUROPE', 'UK'].includes(migrant.desiredRegion)) {
+      throw new Error(`Invariant failed: migrant ${migrant.id} invalid desiredRegion ${migrant.desiredRegion}`);
     }
   }
 
   // 6. No negative active population
-  if (state.stats.activeChums < 0) {
-    throw new Error(`Invariant failed: negative active chum count ${state.stats.activeChums}`);
+  if (state.stats.activeMigrants < 0) {
+    throw new Error(`Invariant failed: negative active migrant count ${state.stats.activeMigrants}`);
   }
 
   // 7. Hoods validation

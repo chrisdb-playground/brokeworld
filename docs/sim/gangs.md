@@ -1,11 +1,11 @@
 # Simulation Rules: Gangs & Syndicate AI
 
-**Gangs** (represented by [`GangState`](file:///c:/Users/chris/src/playground/chumworld/src/sim/types.ts#L34-L55)) are autonomous criminal enterprises competing to control passenger transit corridors across Chum World.
+**Gangs** (represented by [`GangState`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/types.ts#L34-L55)) are autonomous criminal enterprises competing to control passenger transit corridors across Broke World.
 
 Source code reference:
-- Type definitions: [`GangState`](file:///c:/Users/chris/src/playground/chumworld/src/sim/types.ts#L34-L55)
-- Syndicate creation: [`createWorld.ts`](file:///c:/Users/chris/src/playground/chumworld/src/sim/createWorld.ts#L245-L318)
-- AI decision loop: [`ai.ts`](file:///c:/Users/chris/src/playground/chumworld/src/sim/ai.ts)
+- Type definitions: [`GangState`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/types.ts#L34-L55)
+- Syndicate creation: [`createWorld.ts`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/createWorld.ts#L245-L318)
+- AI decision loop: [`ai.ts`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/ai.ts)
 
 ---
 
@@ -30,7 +30,7 @@ If syndicate bankruptcies reduce the active gang count below 2, reserve syndicat
 
 ## 🧠 Autonomous AI Decision Loop
 
-Every gang periodically reviews its finances, staff, and expansion priorities in [`processGangAI()`](file:///c:/Users/chris/src/playground/chumworld/src/sim/ai.ts#L11).
+Every gang periodically reviews its finances, staff, and expansion priorities in [`processGangAI()`](file:///c:/Users/chris/src/playground/brokeworld/src/sim/ai.ts#L11).
 
 ### Evaluation Frequency
 - **Review Period**: Evaluated every **40 ticks** (`tick % 40 === 0`), equivalent to 4 game days (~6 real seconds at 1× speed).
@@ -59,7 +59,7 @@ $$\text{Wage Bill} = \$15 \times \text{number of active employed Hoods}$$
 At start, each gang maintains 1 HQ Boss + 1 Scout Hood = **`$30`** base overhead.
 
 ### 2. Revenue Inflow
-- Each time a Chumigrant signs a travel contract at an owned `RECRUITER` node, the ticket price ($270 to $350) is deposited directly into the gang's cash reserve:
+- Each time a Migrant signs a travel contract at an owned `RECRUITER` node, the ticket price ($270 to $350) is deposited directly into the gang's cash reserve:
   ```typescript
   gang.cash += route.price;
   gang.stats.revenueTotal += route.price;

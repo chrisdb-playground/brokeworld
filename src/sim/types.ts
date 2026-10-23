@@ -93,7 +93,7 @@ export interface RouteServiceState {
   activeVoyageCount: number;
 }
 
-export interface ChumAvatarSpec {
+export interface MigrantAvatarSpec {
   skinTone: string;
   shirtColor: string;
   eyesType: 'dots' | 'sleepy' | 'wide' | 'winking';
@@ -103,20 +103,20 @@ export interface ChumAvatarSpec {
   luggage: 'briefcase' | 'backpack' | 'bundle' | 'none';
 }
 
-export interface ChumigrantState {
+export interface MigrantState {
   id: string;
   name: string;
   originName: string; // Origin city/country (e.g. Tripoli, Alexandria, Calais)
   originRegion: RegionId; // 'AFRICA' | 'EUROPE'
   desiredRegion: 'EUROPE' | 'UK'; // Target destination region
-  originId: string; // Recruiter node where chum is currently waiting
+  originId: string; // Recruiter node where migrant is currently waiting
   cash: number;
   patienceRemainingTicks: number;
   status: 'WAITING' | 'RECRUITED' | 'IN_TRANSIT' | 'ARRIVED' | 'FAILED' | 'DEPARTED';
   recruitedByGangId?: string;
   assignedRouteId?: string;
   voyageId?: string;
-  avatar: ChumAvatarSpec;
+  avatar: MigrantAvatarSpec;
   history: string[];
 }
 
@@ -157,7 +157,7 @@ export interface HoodState {
   role: HoodRole;
   assignment: HoodAssignment;
   currentTaskDescription: string;
-  avatar: ChumAvatarSpec;
+  avatar: MigrantAvatarSpec;
   hiredTick: number;
   history: string[];
 }
@@ -166,9 +166,9 @@ export interface SimEvent {
   id: string;
   tick: number;
   type:
-    | 'CHUM_SPAWNED'
-    | 'CHUM_RECRUITED'
-    | 'CHUM_ARRIVED'
+    | 'MIGRANT_SPAWNED'
+    | 'MIGRANT_RECRUITED'
+    | 'MIGRANT_ARRIVED'
     | 'VOYAGE_LAUNCHED'
     | 'VOYAGE_SUCCESS'
     | 'VOYAGE_DISRUPTED'
@@ -192,8 +192,8 @@ export interface SimEvent {
 }
 
 export interface SimStats {
-  activeChums: number;
-  totalDepartedChums: number;
+  activeMigrants: number;
+  totalDepartedMigrants: number;
   totalVoyagesLaunched: number;
   totalVoyagesSuccess: number;
   totalVoyagesDisrupted: number;
@@ -209,7 +209,7 @@ export interface WorldSnapshot {
   gangs: Record<string, GangState>;
   operations: Record<string, OperationState>;
   routes: Record<string, RouteServiceState>;
-  chumigrants: Record<string, ChumigrantState>;
+  migrants: Record<string, MigrantState>;
   voyages: Record<string, VoyageState>;
   hoods: Record<string, HoodState>;
   events: SimEvent[];

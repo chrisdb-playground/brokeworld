@@ -1,10 +1,10 @@
 import type {
-  ChumAvatarSpec,
   GangState,
   HoodAssignment,
   HoodRole,
   HoodState,
   LocationDef,
+  MigrantAvatarSpec,
   SimEvent,
   VoyageState,
   WorldSnapshot,
@@ -38,10 +38,10 @@ export const HOOD_WAGE_PER_CYCLE = 15;
 
 const SKIN_TONES = ['#fed7aa', '#fef08a', '#cbd5e1', '#fbcfe8', '#bfdbfe', '#bbf7d0'];
 const HAIR_COLORS = ['#0f172a', '#78350f', '#d97706', '#94a3b8', '#b91c1c'];
-const EYE_TYPES: ChumAvatarSpec['eyesType'][] = ['dots', 'winking', 'wide', 'sleepy'];
-const MOUTH_TYPES: ChumAvatarSpec['mouthType'][] = ['neutral', 'smile', 'open'];
-const HAIR_STYLES: ChumAvatarSpec['hairStyle'][] = ['beanie', 'short', 'curly', 'bald'];
-const LUGGAGE_TYPES: ChumAvatarSpec['luggage'][] = ['briefcase', 'bundle', 'backpack', 'none'];
+const EYE_TYPES: MigrantAvatarSpec['eyesType'][] = ['dots', 'winking', 'wide', 'sleepy'];
+const MOUTH_TYPES: MigrantAvatarSpec['mouthType'][] = ['neutral', 'smile', 'open'];
+const HAIR_STYLES: MigrantAvatarSpec['hairStyle'][] = ['beanie', 'short', 'curly', 'bald'];
+const LUGGAGE_TYPES: MigrantAvatarSpec['luggage'][] = ['briefcase', 'bundle', 'backpack', 'none'];
 
 let hoodSeq = 1;
 
@@ -57,7 +57,7 @@ export function generateHoodName(role: HoodRole, prng: SeededPrng): string {
   return `${title} ${first} ${last}`;
 }
 
-export function generateHoodAvatar(gangColor: string, prng: SeededPrng): ChumAvatarSpec {
+export function generateHoodAvatar(gangColor: string, prng: SeededPrng): MigrantAvatarSpec {
   return {
     skinTone: prng.pick(SKIN_TONES),
     shirtColor: gangColor, // Hoods always wear their gang's distinct colors!
@@ -81,7 +81,7 @@ export function describeHoodTask(
       case 'HQ_BOSS':
         return `Directing syndicate operations at ${locName}`;
       case 'RECRUITER_MANAGER':
-        return `Signing up Chums and managing intake at ${locName}`;
+        return `Signing up Migrants and managing intake at ${locName}`;
       case 'DEPOT_GUARD':
         return `Securing safehouse and housing arrivals at ${locName}`;
       case 'WORKSHOP_MECHANIC':

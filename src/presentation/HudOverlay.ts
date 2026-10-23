@@ -1,17 +1,17 @@
 import type { GamePort } from '../app/GamePort';
 import type { TickScheduler } from '../app/TickScheduler';
 import type {
-  ChumigrantState,
   GangState,
   LocationDef,
   LocationKind,
+  MigrantState,
   RegionId,
   RouteServiceState,
   VoyageState,
   WorldSnapshot,
 } from '../sim/types';
 import { getEffectiveInfluenceHeat, getNodeHeatMultiplier, getHqSynergyInfo } from '../sim/influence';
-import { ChumRenderer } from './ChumRenderer';
+import { MigrantRenderer } from './MigrantRenderer';
 
 export interface HudOverlayCallbacks {
   onSelectGang?: (gangId: string | null) => void;
@@ -33,7 +33,7 @@ export class HudOverlay {
   private onCancelPlacementCallback?: () => void;
 
   private currentSnapshot!: WorldSnapshot;
-  private selectedEntityType: 'CHUM' | 'GANG' | 'LOCATION' | 'ROUTE' | 'VOYAGE' | null = null;
+  private selectedEntityType: 'MIGRANT' | 'GANG' | 'LOCATION' | 'ROUTE' | 'VOYAGE' | null = null;
   private selectedEntityId: string | null = null;
   private selectedGangIds: Set<string> = new Set();
   private isInfluenceVisible = true;
@@ -161,9 +161,9 @@ export class HudOverlay {
     this.renderInspector();
   }
 
-  selectChum(chum: ChumigrantState) {
-    this.selectedEntityType = 'CHUM';
-    this.selectedEntityId = chum.id;
+  selectMigrant(migrant: MigrantState) {
+    this.selectedEntityType = 'MIGRANT';
+    this.selectedEntityId = migrant.id;
     this.renderInspector();
   }
 
@@ -177,7 +177,7 @@ export class HudOverlay {
         <div class="brand-badge">
           <span class="brand-icon">🐟</span>
           <div>
-            <div class="brand-name">CHUM WORLD</div>
+            <div class="brand-name">BROKE WORLD</div>
             <div class="brand-sub">AUTONOMOUS SMUGGLER SIMULATOR</div>
           </div>
         </div>
@@ -207,8 +207,8 @@ export class HudOverlay {
         <!-- METRICS -->
         <div class="metrics-bar">
           <div class="metric-item">
-            <span class="m-label">ACTIVE CHUMS</span>
-            <span class="m-val" id="m-chums">0</span>
+            <span class="m-label">ACTIVE MIGRANTS</span>
+            <span class="m-val" id="m-migrants">0</span>
           </div>
           <div class="metric-item">
             <span class="m-label">ROUTES</span>
@@ -377,13 +377,13 @@ export class HudOverlay {
           return;
         }
 
-        const chumRow = target.closest<HTMLElement>('.chum-row-item');
-        if (chumRow) {
+        const migrantRow = target.closest<HTMLElement>('.migrant-row-item');
+        if (migrantRow) {
           e.stopPropagation();
-          const cid = chumRow.getAttribute('data-chum-id');
+          const cid = migrantRow.getAttribute('data-migrant-id');
           if (cid && this.currentSnapshot) {
-            const chum = this.currentSnapshot.chumigrants[cid];
-            if (chum) this.selectChum(chum);
+            const migrant = this.currentSnapshot.migrants[cid];
+            if (migrant) this.selectMigrant(migrant);
           }
           return;
         }
@@ -399,14 +399,14 @@ export class HudOverlay {
     const seedEl = document.getElementById('hud-seed');
     if (seedEl) seedEl.textContent = `${snapshot.seed}`;
 
-    const chumsEl = document.getElementById('m-chums');
+    const migrantsEl = document.getElementById('m-migrants');
     const routesEl = document.getElementById('m-routes');
     const voyagesEl = document.getElementById('m-voyages');
     const succEl = document.getElementById('m-success');
     const disrEl = document.getElementById('m-disrupted');
 
-    const arrivedCount = Object.values(snapshot.chumigrants).filter((c) => c.status === 'ARRIVED').length;
-    if (chumsEl) chumsEl.textContent = `${snapshot.stats.activeChums}`;
+    const arrivedCount = Object.values(snapshot.migrants).filter((c) => c.status === 'ARRIVED').length;
+    if (migrantsEl) migrantsEl.textContent = `${snapshot.stats.activeMigrants}`;
     if (routesEl) routesEl.textContent = `${snapshot.stats.totalActiveRoutes}`;
     if (voyagesEl) voyagesEl.textContent = `${Object.values(snapshot.voyages).filter((v) => v.status === 'IN_PROGRESS').length}`;
     if (succEl) succEl.textContent = `${arrivedCount}`;
@@ -586,55 +586,55 @@ export class HudOverlay {
   }
 
   private buildInspectorStructure(title: HTMLElement, content: HTMLElement) {
-    if (this.selectedEntityType === 'CHUM') {
-      const chum = this.currentSnapshot.chumigrants[this.selectedEntityId!];
-      if (!chum) return;
+    if (this.selectedEntityType === 'MIGRANT') {
+      const migrant = this.currentSnapshot.migrants[this.selectedEntityId!];
+      if (!migrant) return;
 
-      title.textContent = `CHUMIGRANT INSPECTOR`;
-      const origin = this.currentSnapshot.locations[chum.originId];
-      const gang = chum.recruitedByGangId ? this.currentSnapshot.gangs[chum.recruitedByGangId] : null;
+      title.textContent = `MIGRANT INSPECTOR`;
+      const origin = this.currentSnapshot.locations[migrant.originId];
+      const gang = migrant.recruitedByGangId ? this.currentSnapshot.gangs[migrant.recruitedByGangId] : null;
 
       content.innerHTML = `
-        <div class="inspector-chum-hero">
-          <div class="chum-avatar-box">
-            ${ChumRenderer.generateSvg(chum, 95)}
+        <div class="inspector-migrant-hero">
+          <div class="migrant-avatar-box">
+            ${MigrantRenderer.generateSvg(migrant, 95)}
           </div>
-          <div class="chum-hero-info">
-            <h3>${chum.name}</h3>
-            <span class="status-pill status-${chum.status.toLowerCase()}" id="insp-chum-status">${chum.status}</span>
-            <div class="hero-sub">Cash: <b id="insp-chum-cash">$${chum.cash}</b></div>
-            <div class="hero-sub">Patience: <b id="insp-chum-patience">${chum.patienceRemainingTicks} ticks</b></div>
+          <div class="migrant-hero-info">
+            <h3>${migrant.name}</h3>
+            <span class="status-pill status-${migrant.status.toLowerCase()}" id="insp-migrant-status">${migrant.status}</span>
+            <div class="hero-sub">Cash: <b id="insp-migrant-cash">$${migrant.cash}</b></div>
+            <div class="hero-sub">Patience: <b id="insp-migrant-patience">${migrant.patienceRemainingTicks} ticks</b></div>
           </div>
         </div>
 
         <div class="insp-grid">
           <div class="insp-row">
             <span class="lbl">ORIGIN CITY</span>
-            <span class="val highlight">${chum.originName} (${chum.originRegion})</span>
+            <span class="val highlight">${migrant.originName} (${migrant.originRegion})</span>
           </div>
           <div class="insp-row">
             <span class="lbl">DESIRED GOAL</span>
-            <span class="val highlight">${chum.desiredRegion === 'UK' ? '🇬🇧 United Kingdom' : '🇪🇺 West Europe'}</span>
+            <span class="val highlight">${migrant.desiredRegion === 'UK' ? '🇬🇧 United Kingdom' : '🇪🇺 West Europe'}</span>
           </div>
           <div class="insp-row">
             <span class="lbl">CURRENT NODE</span>
-            <span class="val" id="insp-chum-node">${origin?.name || 'Recruiter'} (${origin?.region || 'Europe'})</span>
+            <span class="val" id="insp-migrant-node">${origin?.name || 'Recruiter'} (${origin?.region || 'Europe'})</span>
           </div>
           <div class="insp-row">
             <span class="lbl">RECRUITING GANG</span>
-            <span class="val" id="insp-chum-gang" style="color: ${gang ? gang.color : '#94a3b8'}">
+            <span class="val" id="insp-migrant-gang" style="color: ${gang ? gang.color : '#94a3b8'}">
               ${gang ? `${gang.emblem} ${gang.name}` : 'Waiting for passage'}
             </span>
           </div>
           <div class="insp-row">
             <span class="lbl">ASSIGNED ROUTE</span>
-            <span class="val" id="insp-chum-route">${chum.assignedRouteId || 'None yet'}</span>
+            <span class="val" id="insp-migrant-route">${migrant.assignedRouteId || 'None yet'}</span>
           </div>
         </div>
 
         <div class="insp-subhead">MIGRATION HISTORY</div>
-        <div class="history-list" id="insp-chum-history">
-          ${chum.history.map((h) => `<div class="history-item">${h}</div>`).join('')}
+        <div class="history-list" id="insp-migrant-history">
+          ${migrant.history.map((h) => `<div class="history-item">${h}</div>`).join('')}
         </div>
       `;
     } else if (this.selectedEntityType === 'GANG') {
@@ -690,7 +690,7 @@ export class HudOverlay {
           <div class="insp-row"><span class="lbl">TREASURY</span><span class="val" id="insp-gang-cash">$${gang.cash}</span></div>
           <div class="insp-row"><span class="lbl">PAYROLL WAGES</span><span class="val text-amber" id="insp-gang-payroll">$${wageBill} / cycle (60 ticks)</span></div>
           <div class="insp-row"><span class="lbl">REPUTATION</span><span class="val" id="insp-gang-rep">${gang.reputation} / 100</span></div>
-          <div class="insp-row"><span class="lbl">TOTAL RECRUITS</span><span class="val" id="insp-gang-recruits">${gang.stats.recruitsTotal} Chums</span></div>
+          <div class="insp-row"><span class="lbl">TOTAL RECRUITS</span><span class="val" id="insp-gang-recruits">${gang.stats.recruitsTotal} Migrants</span></div>
           <div class="insp-row"><span class="lbl">SUCCESSFUL VOYAGES</span><span class="val text-green" id="insp-gang-succ">${gang.stats.voyagesSuccessful}</span></div>
           <div class="insp-row"><span class="lbl">DISRUPTED VOYAGES</span><span class="val text-red" id="insp-gang-disr">${gang.stats.voyagesDisrupted}</span></div>
           <div class="insp-row"><span class="lbl">ACTIVE ROUTES</span><span class="val" id="insp-gang-routes">${routes.filter((r) => r.status === 'ACTIVE').length}</span></div>
@@ -754,7 +754,7 @@ export class HudOverlay {
           💡 Click button above, then click map inside HQ heat map to place node. (Right-click or ESC to cancel).
         </div>
 
-        <div class="insp-subhead">EMPLOYED CHUM HOODS (${gangHoods.length})</div>
+        <div class="insp-subhead">EMPLOYED HOODS (${gangHoods.length})</div>
         <div class="hood-hire-bar">
           <button class="btn-hire-scout" data-gang-id="${gang.id}" ${gang.cash < 150 ? 'disabled' : ''}>
             🕵️ Hire Scout Hood <b>$150</b>
@@ -764,7 +764,7 @@ export class HudOverlay {
           ${gangHoods.map((h) => `
             <div class="hood-card">
               <div class="hood-card-header">
-                <div class="hood-mini-avatar">${ChumRenderer.generateSvg({ avatar: h.avatar, name: h.name }, 38)}</div>
+                <div class="hood-mini-avatar">${MigrantRenderer.generateSvg({ avatar: h.avatar, name: h.name }, 38)}</div>
                 <div class="hood-info">
                   <div class="hood-name">${h.name}</div>
                   <span class="hood-role-tag role-${h.role.toLowerCase()}">${h.role.replace(/_/g, ' ')}</span>
@@ -796,10 +796,10 @@ export class HudOverlay {
       const isCandidate = loc.operationalStatus === 'DISCOVERED_CANDIDATE' || loc.gangId === 'NEUTRAL' || !loc.gangId;
       const isUnstaffed = !isCandidate && (loc.operationalStatus === 'UNSTAFFED' || !loc.assignedHoodId);
 
-      const chumsPresent = Object.values(this.currentSnapshot.chumigrants).filter(
+      const migrantsPresent = Object.values(this.currentSnapshot.migrants).filter(
         (c) => c.originId === loc.id && (c.status === 'WAITING' || c.status === 'RECRUITED')
       );
-      const chumsInDepot = Object.values(this.currentSnapshot.chumigrants).filter(
+      const migrantsInDepot = Object.values(this.currentSnapshot.migrants).filter(
         (c) => c.originId === loc.id && c.status === 'ARRIVED'
       );
       const outgoingRoutes = Object.values(this.currentSnapshot.routes).filter(
@@ -866,16 +866,16 @@ export class HudOverlay {
             <div class="insp-row"><span class="lbl">DUTY</span><span class="val" style="font-size: 10px; color: #cbd5e1;">${assignedHood.role.replace(/_/g, ' ')}</span></div>
           ` : ''}
           ${loc.kind === 'RECRUITER' ? `
-            <div class="insp-row"><span class="lbl">WAITING CHUMS</span><span class="val highlight" id="insp-loc-waiting">${chumsPresent.length}</span></div>
+            <div class="insp-row"><span class="lbl">WAITING MIGRANTS</span><span class="val highlight" id="insp-loc-waiting">${migrantsPresent.length}</span></div>
             <div class="insp-row"><span class="lbl">OUTGOING ROUTES</span><span class="val" id="insp-loc-out">${outgoingRoutes.length}</span></div>
           ` : ''}
           ${loc.kind === 'DEPOT' ? `
-            <div class="insp-row"><span class="lbl">CHUMS IN DEPOT</span><span class="val text-green" id="insp-loc-depot">${chumsInDepot.length}</span></div>
+            <div class="insp-row"><span class="lbl">MIGRANTS IN DEPOT</span><span class="val text-green" id="insp-loc-depot">${migrantsInDepot.length}</span></div>
             <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val" id="insp-loc-in">${incomingRoutes.length}</span></div>
             <div class="insp-row"><span class="lbl">OUTGOING ROUTES</span><span class="val" id="insp-loc-out">${outgoingRoutes.length}</span></div>
           ` : ''}
           ${loc.kind === 'WORKSHOP' ? `
-            <div class="insp-row"><span class="lbl">CHUMS AT WORKSHOP</span><span class="val text-amber" id="insp-loc-ws">${chumsInDepot.length}</span></div>
+            <div class="insp-row"><span class="lbl">MIGRANTS AT WORKSHOP</span><span class="val text-amber" id="insp-loc-ws">${migrantsInDepot.length}</span></div>
             <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val" id="insp-loc-in">${incomingRoutes.length}</span></div>
           ` : ''}
         </div>
@@ -896,12 +896,12 @@ export class HudOverlay {
         ` : ''}
 
         ${loc.kind === 'HQ' ? `
-          <div class="insp-subhead">EMPLOYED CHUM HOODS (${gangHoods.length})</div>
+          <div class="insp-subhead">EMPLOYED HOODS (${gangHoods.length})</div>
           <div class="hoods-scroll-list">
             ${gangHoods.map((h) => `
               <div class="hood-card">
                 <div class="hood-card-header">
-                  <div class="hood-mini-avatar">${ChumRenderer.generateSvg({ avatar: h.avatar, name: h.name }, 38)}</div>
+                  <div class="hood-mini-avatar">${MigrantRenderer.generateSvg({ avatar: h.avatar, name: h.name }, 38)}</div>
                   <div class="hood-info">
                     <div class="hood-name">${h.name}</div>
                     <span class="hood-role-tag role-${h.role.toLowerCase()}">${h.role.replace(/_/g, ' ')}</span>
@@ -918,53 +918,53 @@ export class HudOverlay {
         ` : ''}
 
         ${loc.kind === 'RECRUITER' ? `
-          <div class="insp-subhead">WAITING CHUMIGRANTS (${chumsPresent.length})</div>
-          <div class="chums-scroll-list" id="insp-loc-chums-list" data-list-sig="${chumsPresent.map((c) => c.id).join(';')}">
-            ${chumsPresent.map((c) => `
-              <div class="chum-row-item" data-chum-id="${c.id}">
-                <div class="chum-mini-avatar">${ChumRenderer.generateSvg(c, 36)}</div>
-                <div class="chum-mini-info">
+          <div class="insp-subhead">WAITING MIGRANTS (${migrantsPresent.length})</div>
+          <div class="migrants-scroll-list" id="insp-loc-migrants-list" data-list-sig="${migrantsPresent.map((c) => c.id).join(';')}">
+            ${migrantsPresent.map((c) => `
+              <div class="migrant-row-item" data-migrant-id="${c.id}">
+                <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
+                <div class="migrant-mini-info">
                   <div class="c-name">${c.name} (${c.originName})</div>
                   <div class="c-dest">Destination: <b>${c.desiredRegion}</b></div>
                 </div>
                 <span class="c-status">${c.status}</span>
               </div>
             `).join('')}
-            ${chumsPresent.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No chumigrants waiting.</div>' : ''}
+            ${migrantsPresent.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No migrants waiting.</div>' : ''}
           </div>
         ` : ''}
 
         ${loc.kind === 'DEPOT' ? `
-          <div class="insp-subhead">CHUMIGRANTS HOUSED IN DEPOT (${chumsInDepot.length})</div>
-          <div class="chums-scroll-list" id="insp-loc-chums-list" data-list-sig="${chumsInDepot.map((c) => c.id).join(';')}">
-            ${chumsInDepot.map((c) => `
-              <div class="chum-row-item" data-chum-id="${c.id}">
-                <div class="chum-mini-avatar">${ChumRenderer.generateSvg(c, 36)}</div>
-                <div class="chum-mini-info">
+          <div class="insp-subhead">MIGRANTS HOUSED IN DEPOT (${migrantsInDepot.length})</div>
+          <div class="migrants-scroll-list" id="insp-loc-migrants-list" data-list-sig="${migrantsInDepot.map((c) => c.id).join(';')}">
+            ${migrantsInDepot.map((c) => `
+              <div class="migrant-row-item" data-migrant-id="${c.id}">
+                <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
+                <div class="migrant-mini-info">
                   <div class="c-name">${c.name} (${c.originName})</div>
                   <div class="c-dest">Status: <b class="text-green">Housed in Depot</b></div>
                 </div>
                 <span class="c-status" style="background:#10b98122;color:#34d399">ARRIVED</span>
               </div>
             `).join('')}
-            ${chumsInDepot.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No chumigrants in depot yet.</div>' : ''}
+            ${migrantsInDepot.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No migrants in depot yet.</div>' : ''}
           </div>
         ` : ''}
 
         ${loc.kind === 'WORKSHOP' ? `
-          <div class="insp-subhead">CHUMIGRANTS STATIONED AT WORKSHOP (${chumsInDepot.length})</div>
-          <div class="chums-scroll-list" id="insp-loc-chums-list" data-list-sig="${chumsInDepot.map((c) => c.id).join(';')}">
-            ${chumsInDepot.map((c) => `
-              <div class="chum-row-item" data-chum-id="${c.id}">
-                <div class="chum-mini-avatar">${ChumRenderer.generateSvg(c, 36)}</div>
-                <div class="chum-mini-info">
+          <div class="insp-subhead">MIGRANTS STATIONED AT WORKSHOP (${migrantsInDepot.length})</div>
+          <div class="migrants-scroll-list" id="insp-loc-migrants-list" data-list-sig="${migrantsInDepot.map((c) => c.id).join(';')}">
+            ${migrantsInDepot.map((c) => `
+              <div class="migrant-row-item" data-migrant-id="${c.id}">
+                <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
+                <div class="migrant-mini-info">
                   <div class="c-name">${c.name} (${c.originName})</div>
                   <div class="c-dest">Status: <b class="text-amber">Working in Workshop</b></div>
                 </div>
                 <span class="c-status" style="background:#f59e0b22;color:#fbbf24">ARRIVED</span>
               </div>
             `).join('')}
-            ${chumsInDepot.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No chumigrants stationed at workshop yet.</div>' : ''}
+            ${migrantsInDepot.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No migrants stationed at workshop yet.</div>' : ''}
           </div>
         ` : ''}
       `;
@@ -986,10 +986,10 @@ export class HudOverlay {
         <div class="insp-grid">
           <div class="insp-row"><span class="lbl">TRANSPORT MODE</span><span class="val">${route.mode}</span></div>
           <div class="insp-row"><span class="lbl">FARE PRICE</span><span class="val highlight">$${route.price}</span></div>
-          <div class="insp-row"><span class="lbl">CAPACITY</span><span class="val">${route.capacity} Chums</span></div>
+          <div class="insp-row"><span class="lbl">CAPACITY</span><span class="val">${route.capacity} Migrants</span></div>
           <div class="insp-row"><span class="lbl">DURATION</span><span class="val">${route.durationTicks} ticks</span></div>
           <div class="insp-row"><span class="lbl">RELIABILITY</span><span class="val" id="insp-route-rel">${Math.round(route.reliability * 100)}%</span></div>
-          <div class="insp-row"><span class="lbl">TOTAL CARRIED</span><span class="val" id="insp-route-carried">${route.totalPassengers} Chums</span></div>
+          <div class="insp-row"><span class="lbl">TOTAL CARRIED</span><span class="val" id="insp-route-carried">${route.totalPassengers} Migrants</span></div>
           <div class="insp-row"><span class="lbl">TOTAL REVENUE</span><span class="val text-green" id="insp-route-rev">$${route.revenue}</span></div>
           <div class="insp-row"><span class="lbl">STATUS</span><span class="val" id="insp-route-status">${route.status}</span></div>
         </div>
@@ -1001,7 +1001,7 @@ export class HudOverlay {
       const gang = this.currentSnapshot.gangs[voyage.gangId];
       const src = this.currentSnapshot.locations[voyage.sourceId];
       const tgt = this.currentSnapshot.locations[voyage.targetId];
-      const passengers = voyage.passengerIds.map((pid) => this.currentSnapshot.chumigrants[pid]).filter(Boolean);
+      const passengers = voyage.passengerIds.map((pid) => this.currentSnapshot.migrants[pid]).filter(Boolean);
       const captainHood = voyage.captainHoodId ? this.currentSnapshot.hoods[voyage.captainHoodId] : null;
 
       title.textContent = `ACTIVE VOYAGE`;
@@ -1030,11 +1030,11 @@ export class HudOverlay {
         ` : ''}
 
         <div class="insp-subhead">PASSENGERS ON BOARD (${passengers.length})</div>
-        <div class="chums-scroll-list">
+        <div class="migrants-scroll-list">
           ${passengers.map((c) => `
-            <div class="chum-row-item" data-chum-id="${c.id}">
-              <div class="chum-mini-avatar">${ChumRenderer.generateSvg(c, 36)}</div>
-              <div class="chum-mini-info">
+            <div class="migrant-row-item" data-migrant-id="${c.id}">
+              <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
+              <div class="migrant-mini-info">
                 <div class="c-name">${c.name} (${c.originName})</div>
                 <div class="c-dest">Target: <b>${c.desiredRegion}</b></div>
               </div>
@@ -1047,24 +1047,24 @@ export class HudOverlay {
   }
 
   private updateInspectorValues(content: HTMLElement) {
-    if (this.selectedEntityType === 'CHUM') {
-      const chum = this.currentSnapshot.chumigrants[this.selectedEntityId!];
-      if (!chum) return;
+    if (this.selectedEntityType === 'MIGRANT') {
+      const migrant = this.currentSnapshot.migrants[this.selectedEntityId!];
+      if (!migrant) return;
 
-      const statusEl = content.querySelector('#insp-chum-status');
+      const statusEl = content.querySelector('#insp-migrant-status');
       if (statusEl) {
-        statusEl.className = `status-pill status-${chum.status.toLowerCase()}`;
-        statusEl.textContent = chum.status;
+        statusEl.className = `status-pill status-${migrant.status.toLowerCase()}`;
+        statusEl.textContent = migrant.status;
       }
-      const cashEl = content.querySelector('#insp-chum-cash');
-      if (cashEl) cashEl.textContent = `$${chum.cash}`;
-      const patEl = content.querySelector('#insp-chum-patience');
-      if (patEl) patEl.textContent = `${chum.patienceRemainingTicks} ticks`;
-      const origin = this.currentSnapshot.locations[chum.originId];
-      const nodeEl = content.querySelector('#insp-chum-node');
+      const cashEl = content.querySelector('#insp-migrant-cash');
+      if (cashEl) cashEl.textContent = `$${migrant.cash}`;
+      const patEl = content.querySelector('#insp-migrant-patience');
+      if (patEl) patEl.textContent = `${migrant.patienceRemainingTicks} ticks`;
+      const origin = this.currentSnapshot.locations[migrant.originId];
+      const nodeEl = content.querySelector('#insp-migrant-node');
       if (nodeEl) nodeEl.textContent = `${origin?.name || 'Recruiter'} (${origin?.region || 'Europe'})`;
-      const routeEl = content.querySelector('#insp-chum-route');
-      if (routeEl) routeEl.textContent = chum.assignedRouteId || 'None yet';
+      const routeEl = content.querySelector('#insp-migrant-route');
+      if (routeEl) routeEl.textContent = migrant.assignedRouteId || 'None yet';
     } else if (this.selectedEntityType === 'GANG') {
       const gang = this.currentSnapshot.gangs[this.selectedEntityId!];
       if (!gang) return;
@@ -1089,7 +1089,7 @@ export class HudOverlay {
       const repEl = content.querySelector('#insp-gang-rep');
       if (repEl) repEl.textContent = `${gang.reputation} / 100`;
       const recEl = content.querySelector('#insp-gang-recruits');
-      if (recEl) recEl.textContent = `${gang.stats.recruitsTotal} Chums`;
+      if (recEl) recEl.textContent = `${gang.stats.recruitsTotal} Migrants`;
       const succEl = content.querySelector('#insp-gang-succ');
       if (succEl) succEl.textContent = `${gang.stats.voyagesSuccessful}`;
       const disrEl = content.querySelector('#insp-gang-disr');
@@ -1143,10 +1143,10 @@ export class HudOverlay {
       const heatEl = content.querySelector('#insp-loc-heat');
       if (heatEl) heatEl.textContent = `${heatPct}% (${multiplier}x Stats Multiplier)`;
 
-      const chumsPresent = Object.values(this.currentSnapshot.chumigrants).filter(
+      const migrantsPresent = Object.values(this.currentSnapshot.migrants).filter(
         (c) => c.originId === loc.id && (c.status === 'WAITING' || c.status === 'RECRUITED')
       );
-      const chumsInDepot = Object.values(this.currentSnapshot.chumigrants).filter(
+      const migrantsInDepot = Object.values(this.currentSnapshot.migrants).filter(
         (c) => c.originId === loc.id && c.status === 'ARRIVED'
       );
       const outgoingRoutes = Object.values(this.currentSnapshot.routes).filter(
@@ -1157,35 +1157,35 @@ export class HudOverlay {
       );
 
       const waitEl = content.querySelector('#insp-loc-waiting');
-      if (waitEl) waitEl.textContent = `${chumsPresent.length}`;
+      if (waitEl) waitEl.textContent = `${migrantsPresent.length}`;
       const depotEl = content.querySelector('#insp-loc-depot');
-      if (depotEl) depotEl.textContent = `${chumsInDepot.length}`;
+      if (depotEl) depotEl.textContent = `${migrantsInDepot.length}`;
       const wsEl = content.querySelector('#insp-loc-ws');
-      if (wsEl) wsEl.textContent = `${chumsInDepot.length}`;
+      if (wsEl) wsEl.textContent = `${migrantsInDepot.length}`;
       const outEl = content.querySelector('#insp-loc-out');
       if (outEl) outEl.textContent = `${outgoingRoutes.length}`;
       const inEl = content.querySelector('#insp-loc-in');
       if (inEl) inEl.textContent = `${incomingRoutes.length}`;
 
-      const chumsListEl = content.querySelector('#insp-loc-chums-list');
-      if (chumsListEl) {
-        const targetChums = loc.kind === 'RECRUITER' ? chumsPresent : chumsInDepot;
-        const currentListKey = chumsListEl.getAttribute('data-list-sig');
-        const newListKey = targetChums.map((c) => `${c.id}:${c.status}`).join(';');
+      const migrantsListEl = content.querySelector('#insp-loc-migrants-list');
+      if (migrantsListEl) {
+        const targetMigrants = loc.kind === 'RECRUITER' ? migrantsPresent : migrantsInDepot;
+        const currentListKey = migrantsListEl.getAttribute('data-list-sig');
+        const newListKey = targetMigrants.map((c) => `${c.id}:${c.status}`).join(';');
         if (currentListKey !== newListKey) {
-          chumsListEl.setAttribute('data-list-sig', newListKey);
-          chumsListEl.innerHTML = targetChums.map((c) => `
-            <div class="chum-row-item" data-chum-id="${c.id}">
-              <div class="chum-mini-avatar">${ChumRenderer.generateSvg(c, 36)}</div>
-              <div class="chum-mini-info">
+          migrantsListEl.setAttribute('data-list-sig', newListKey);
+          migrantsListEl.innerHTML = targetMigrants.map((c) => `
+            <div class="migrant-row-item" data-migrant-id="${c.id}">
+              <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
+              <div class="migrant-mini-info">
                 <div class="c-name">${c.name} (${c.originName})</div>
                 <div class="c-dest">${loc.kind === 'RECRUITER' ? `Destination: <b>${c.desiredRegion}</b>` : `Status: <b class="text-green">Housed in Depot</b>`}</div>
               </div>
               <span class="c-status">${c.status}</span>
             </div>
           `).join('');
-          if (targetChums.length === 0) {
-            chumsListEl.innerHTML = '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No chumigrants here currently.</div>';
+          if (targetMigrants.length === 0) {
+            migrantsListEl.innerHTML = '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No migrants here currently.</div>';
           }
         }
       }
@@ -1196,7 +1196,7 @@ export class HudOverlay {
       const relEl = content.querySelector('#insp-route-rel');
       if (relEl) relEl.textContent = `${Math.round(route.reliability * 100)}%`;
       const carEl = content.querySelector('#insp-route-carried');
-      if (carEl) carEl.textContent = `${route.totalPassengers} Chums`;
+      if (carEl) carEl.textContent = `${route.totalPassengers} Migrants`;
       const revEl = content.querySelector('#insp-route-rev');
       if (revEl) revEl.textContent = `$${route.revenue}`;
       const statEl = content.querySelector('#insp-route-status');

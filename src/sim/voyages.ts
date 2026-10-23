@@ -111,11 +111,11 @@ export function processVoyages(
       }
     }
 
-    let manifestPassengers: typeof state.chumigrants[string][] = [];
+    let manifestPassengers: typeof state.migrants[string][] = [];
 
     if (srcLoc.kind === 'RECRUITER' && tgtLoc.kind === 'DEPOT') {
-      // Find recruited chums waiting for this specific route
-      const passengers = Object.values(state.chumigrants).filter(
+      // Find recruited migrants waiting for this specific route
+      const passengers = Object.values(state.migrants).filter(
         (c) => c.status === 'RECRUITED' && c.assignedRouteId === route.id
       );
 
@@ -124,20 +124,20 @@ export function processVoyages(
       // Batch up to route capacity
       manifestPassengers = passengers.slice(0, route.capacity);
     } else if (srcLoc.kind === 'DEPOT' && tgtLoc.kind === 'WORKSHOP') {
-      // Find arrived Chumigrants currently residing in this depot
-      const chumsInDepot = Object.values(state.chumigrants).filter(
+      // Find arrived Migrants currently residing in this depot
+      const migrantsInDepot = Object.values(state.migrants).filter(
         (c) => c.status === 'ARRIVED' && c.originId === route.sourceId
       );
 
-      if (chumsInDepot.length === 0) continue;
+      if (migrantsInDepot.length === 0) continue;
 
-      // Rule: "randomly decided if chumigrants in depot can ben sent to workshop. if yes for a bunch of chumigrants, create a voyage from depot to workshop."
-      // Seeded random decision: 20% chance per tick when chums reside in depot
+      // Rule: "randomly decided if migrants in depot can be sent to workshop. if yes for a bunch of migrants, create a voyage from depot to workshop."
+      // Seeded random decision: 20% chance per tick when migrants reside in depot
       if (!prng.chance(0.20)) continue;
 
-      // Seeded random batch size for "a bunch of chumigrants" (1 to capacity)
-      const bunchSize = prng.nextInt(1, Math.min(chumsInDepot.length, route.capacity));
-      const candidates = [...chumsInDepot];
+      // Seeded random batch size for "a bunch of migrants" (1 to capacity)
+      const bunchSize = prng.nextInt(1, Math.min(migrantsInDepot.length, route.capacity));
+      const candidates = [...migrantsInDepot];
       manifestPassengers = [];
       for (let i = 0; i < bunchSize; i++) {
         const pickedIdx = prng.nextInt(0, candidates.length - 1);
@@ -213,7 +213,7 @@ export function processVoyages(
       id: `EVT_LAUNCH_${voyageId}`,
       tick: state.tick,
       type: 'VOYAGE_LAUNCHED',
-      description: `${gang?.name || 'Gang'} launched ${route.mode.toLowerCase()} ${voyageType} (${passengerIds.length} Chums, ${driverTitle}: ${skipperHood.name}) from ${srcLoc.name} to ${tgtLoc.name}.`,
+      description: `${gang?.name || 'Gang'} launched ${route.mode.toLowerCase()} ${voyageType} (${passengerIds.length} Migrants, ${driverTitle}: ${skipperHood.name}) from ${srcLoc.name} to ${tgtLoc.name}.`,
       importance: 'LOW',
       gangId: route.gangId,
       locationId: route.sourceId,
@@ -294,35 +294,35 @@ function resolveVoyage(
     state.stats.totalVoyagesSuccess++;
 
     for (const pid of voyage.passengerIds) {
-      const chum = state.chumigrants[pid];
-      if (chum) {
-        chum.status = 'ARRIVED';
-        chum.originId = voyage.targetId;
-        chum.recruitedByGangId = undefined;
-        chum.assignedRouteId = undefined;
-        chum.voyageId = undefined;
+      const migrant = state.migrants[pid];
+      if (migrant) {
+        migrant.status = 'ARRIVED';
+        migrant.originId = voyage.targetId;
+        migrant.recruitedByGangId = undefined;
+        migrant.assignedRouteId = undefined;
+        migrant.voyageId = undefined;
 
         if (!isWorkshop) {
           // Cross-border Recruiter -> Depot arrival
-          state.stats.activeChums--;
-          state.stats.totalDepartedChums++;
-          chum.history.push(
+          state.stats.activeMigrants--;
+          state.stats.totalDepartedMigrants++;
+          migrant.history.push(
             `[Tick ${state.tick}] Completed voyage from ${srcLoc?.name || 'recruiter'} and arrived at ${targetLoc?.name || 'depot'} (${targetLoc?.region}). Remaining in depot.`
           );
         } else {
           // Intra-region Depot -> Workshop arrival
-          chum.history.push(
+          migrant.history.push(
             `[Tick ${state.tick}] Completed van transfer from ${srcLoc?.name || 'depot'} and arrived at ${targetLoc?.name || 'workshop'} (${targetLoc?.region}). Assigned to workshop duties.`
           );
         }
 
         events.push({
-          id: `EVT_ARR_${chum.id}_${state.tick}`,
+          id: `EVT_ARR_${migrant.id}_${state.tick}`,
           tick: state.tick,
-          type: 'CHUM_ARRIVED',
+          type: 'MIGRANT_ARRIVED',
           description: isWorkshop
-            ? `${chum.name} arrived at ${targetLoc?.name || 'workshop'} to start work.`
-            : `${chum.name} arrived at ${targetLoc?.name || 'depot'} and settled into the depot.`,
+            ? `${migrant.name} arrived at ${targetLoc?.name || 'workshop'} to start work.`
+            : `${migrant.name} arrived at ${targetLoc?.name || 'depot'} and settled into the depot.`,
           importance: 'LOW',
           gangId: voyage.gangId,
           locationId: voyage.targetId,
@@ -335,8 +335,8 @@ function resolveVoyage(
       tick: state.tick,
       type: 'VOYAGE_SUCCESS',
       description: isWorkshop
-        ? `Van convoy arrived safely at ${targetLoc?.name || 'workshop'} (${voyage.passengerIds.length} Chums delivered to workshop).`
-        : `Voyage arrived safely at ${targetLoc?.name || 'depot'} (${voyage.passengerIds.length} Chums safely housed in depot).`,
+        ? `Van convoy arrived safely at ${targetLoc?.name || 'workshop'} (${voyage.passengerIds.length} Migrants delivered to workshop).`
+        : `Voyage arrived safely at ${targetLoc?.name || 'depot'} (${voyage.passengerIds.length} Migrants safely housed in depot).`,
       importance: 'MEDIUM',
       gangId: voyage.gangId,
       locationId: voyage.targetId,
@@ -353,26 +353,26 @@ function resolveVoyage(
     state.stats.totalVoyagesDisrupted++;
 
     for (const pid of voyage.passengerIds) {
-      const chum = state.chumigrants[pid];
-      if (chum) {
+      const migrant = state.migrants[pid];
+      if (migrant) {
         if (isFromDepot) {
           // Depot -> Workshop failure: safely returned to Depot as ARRIVED
-          chum.status = 'ARRIVED';
-          chum.originId = voyage.sourceId;
-          chum.recruitedByGangId = undefined;
-          chum.assignedRouteId = undefined;
-          chum.voyageId = undefined;
-          chum.history.push(
+          migrant.status = 'ARRIVED';
+          migrant.originId = voyage.sourceId;
+          migrant.recruitedByGangId = undefined;
+          migrant.assignedRouteId = undefined;
+          migrant.voyageId = undefined;
+          migrant.history.push(
             `[Tick ${state.tick}] Workshop transfer was ${voyage.status.toLowerCase()}! Returned safely to ${srcLoc?.name || 'depot'}.`
           );
         } else {
           // Recruiter -> Depot failure: returned to recruiter as WAITING
-          chum.status = 'WAITING';
-          chum.recruitedByGangId = undefined;
-          chum.assignedRouteId = undefined;
-          chum.voyageId = undefined;
-          chum.patienceRemainingTicks = Math.max(300, chum.patienceRemainingTicks - 200);
-          chum.history.push(
+          migrant.status = 'WAITING';
+          migrant.recruitedByGangId = undefined;
+          migrant.assignedRouteId = undefined;
+          migrant.voyageId = undefined;
+          migrant.patienceRemainingTicks = Math.max(300, migrant.patienceRemainingTicks - 200);
+          migrant.history.push(
             `[Tick ${state.tick}] Voyage was ${voyage.status.toLowerCase()}! Returned to waiting at ${srcLoc?.name || 'recruiter'}.`
           );
         }
