@@ -5,10 +5,17 @@ import type {
   ChumigrantState,
   GangState,
   LocationDef,
+  LocationKind,
+  RegionId,
   RouteServiceState,
   VoyageState,
   WorldSnapshot,
 } from '../sim/types';
+import {
+  BASE_HQ_INFLUENCE_RADIUS,
+  getRegionForY,
+  canPurchaseNode,
+} from '../sim/influence';
 
 export interface SceneSelectionEvents {
   onSelectLocation?: (location: LocationDef, snapshot: WorldSnapshot) => void;
@@ -17,6 +24,8 @@ export interface SceneSelectionEvents {
   onSelectVoyage?: (voyage: VoyageState, snapshot: WorldSnapshot) => void;
   onSelectChum?: (chum: ChumigrantState, snapshot: WorldSnapshot) => void;
   onDeselectAll?: () => void;
+  onCancelPlacement?: () => void;
+  onInfluenceToggled?: (visible: boolean) => void;
 }
 
 export class ChumScene extends Phaser.Scene {
@@ -27,12 +36,23 @@ export class ChumScene extends Phaser.Scene {
   // Graphics layers
   private floorTile!: Phaser.GameObjects.TileSprite;
   private bgGfx!: Phaser.GameObjects.Graphics;
+  private influenceGfxUk!: Phaser.GameObjects.Graphics;
+  private influenceGfxEur!: Phaser.GameObjects.Graphics;
+  private influenceGfxAfr!: Phaser.GameObjects.Graphics;
+  private isInfluenceZoneVisible = true;
   private borderGfx!: Phaser.GameObjects.Graphics;
   private connectionsGfx!: Phaser.GameObjects.Graphics;
   private routesGfx!: Phaser.GameObjects.Graphics;
   private vehiclesContainer!: Phaser.GameObjects.Container;
   private nodesContainer!: Phaser.GameObjects.Container;
   private labelsContainer!: Phaser.GameObjects.Container;
+  private placementGfx!: Phaser.GameObjects.Graphics;
+  private placementMode: {
+    gangId: string;
+    kind: LocationKind;
+    cost: number;
+    region?: RegionId;
+  } | null = null;
 
   // Visual interactive caches
   private locationContainers: Map<string, Phaser.GameObjects.Container> = new Map();
@@ -47,8 +67,6 @@ export class ChumScene extends Phaser.Scene {
   private cameraStartY = 0;
 
   // Multi-Gang Selection:
-  // "it should be possible to select, view, multiple gangs."
-  // "deselect to hide everything."
   private selectedGangIds: Set<string> = new Set();
   private selectedRouteId: string | null = null;
   private selectedLocationId: string | null = null;
@@ -129,15 +147,51 @@ export class ChumScene extends Phaser.Scene {
 
     // 1. Graphics layers in depth order
     this.bgGfx = this.add.graphics().setDepth(1);
+
+    // Influence Heatmap Layers (Depth 1.4, strictly masked per region)
+    // Rule: "heat map stops at border."
+    const worldW = 1800;
+    const startX = -300;
+
+    // UK Influence Mask (y: -100 to 205)
+    this.influenceGfxUk = this.add.graphics().setDepth(1.4);
+    const maskGfxUk = this.make.graphics();
+    maskGfxUk.fillRect(startX, -100, worldW, 305);
+    this.influenceGfxUk.setMask(new Phaser.Display.Masks.GeometryMask(this, maskGfxUk));
+
+    // Europe Influence Mask (y: 205 to 505)
+    this.influenceGfxEur = this.add.graphics().setDepth(1.4);
+    const maskGfxEur = this.make.graphics();
+    maskGfxEur.fillRect(startX, 205, worldW, 300);
+    this.influenceGfxEur.setMask(new Phaser.Display.Masks.GeometryMask(this, maskGfxEur));
+
+    // Africa Influence Mask (y: 505 to 800)
+    this.influenceGfxAfr = this.add.graphics().setDepth(1.4);
+    const maskGfxAfr = this.make.graphics();
+    maskGfxAfr.fillRect(startX, 505, worldW, 295);
+    this.influenceGfxAfr.setMask(new Phaser.Display.Masks.GeometryMask(this, maskGfxAfr));
+
     this.borderGfx = this.add.graphics().setDepth(2);
     this.labelsContainer = this.add.container(0, 0).setDepth(2.5);
     this.connectionsGfx = this.add.graphics().setDepth(3);
     this.routesGfx = this.add.graphics().setDepth(4);
     this.vehiclesContainer = this.add.container(0, 0).setDepth(5);
     this.nodesContainer = this.add.container(0, 0).setDepth(6);
+    this.placementGfx = this.add.graphics().setDepth(10);
 
     this.createStaticRegionLabels();
     this.setupCameraControls();
+
+    // Hotkey toggles for influence zones (I or H)
+    this.input.keyboard?.on('keydown-I', () => {
+      this.toggleInfluence();
+    });
+    this.input.keyboard?.on('keydown-H', () => {
+      this.toggleInfluence();
+    });
+    this.input.keyboard?.on('keydown-ESC', () => {
+      this.cancelPlacementMode();
+    });
 
     // Subscribe to simulation updates
     this.port.subscribe((snapshot) => {
@@ -210,6 +264,11 @@ export class ChumScene extends Phaser.Scene {
     let pointerDownPos = { x: 0, y: 0 };
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.rightButtonDown() && this.placementMode) {
+        this.cancelPlacementMode();
+        return;
+      }
+
       if (pointer.leftButtonDown() || pointer.middleButtonDown()) {
         this.isDragging = true;
         this.dragStartX = pointer.x;
@@ -227,13 +286,24 @@ export class ChumScene extends Phaser.Scene {
         this.cameras.main.scrollX = this.cameraStartX - (pointer.x - this.dragStartX) / zoom;
         this.cameras.main.scrollY = this.cameraStartY - (pointer.y - this.dragStartY) / zoom;
       }
+
+      if (this.placementMode) {
+        this.updatePlacementPreview(pointer);
+      }
     });
 
     this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
       this.isDragging = false;
 
-      // Click on empty ground deselects all gangs and hides everything
       const moved = Math.hypot(pointer.x - pointerDownPos.x, pointer.y - pointerDownPos.y);
+
+      // Handle interactive placement click
+      if (this.placementMode && moved < 6) {
+        this.executePlacementClick(pointer);
+        return;
+      }
+
+      // Click on empty ground deselects all gangs and hides everything
       const duration = Date.now() - pointerDownTime;
       if (moved < 5 && duration < 300) {
         const hitObjects = this.input.hitTestPointer(pointer);
@@ -260,6 +330,131 @@ export class ChumScene extends Phaser.Scene {
       const targetMidY = mouseWorldY - (pointer.y - cam.height / 2) / newZoom;
       cam.centerOn(targetMidX, targetMidY);
     });
+  }
+
+  toggleInfluence(): boolean {
+    this.isInfluenceZoneVisible = !this.isInfluenceZoneVisible;
+    this.renderWorld(this.currentSnapshot);
+    if (this.eventsHandler.onInfluenceToggled) {
+      this.eventsHandler.onInfluenceToggled(this.isInfluenceZoneVisible);
+    }
+    return this.isInfluenceZoneVisible;
+  }
+
+  setInfluenceVisible(visible: boolean): void {
+    this.isInfluenceZoneVisible = visible;
+    this.renderWorld(this.currentSnapshot);
+    if (this.eventsHandler.onInfluenceToggled) {
+      this.eventsHandler.onInfluenceToggled(this.isInfluenceZoneVisible);
+    }
+  }
+
+  isInfluenceVisible(): boolean {
+    return this.isInfluenceZoneVisible;
+  }
+
+  startPlacementMode(data: { gangId: string; kind: LocationKind; cost: number; region?: RegionId }): void {
+    this.placementMode = data;
+    this.placementGfx.clear();
+  }
+
+  cancelPlacementMode(): void {
+    this.placementMode = null;
+    this.placementGfx.clear();
+    if (this.eventsHandler.onCancelPlacement) {
+      this.eventsHandler.onCancelPlacement();
+    }
+  }
+
+  isPlacementActive(): boolean {
+    return this.placementMode !== null;
+  }
+
+  private updatePlacementPreview(pointer: Phaser.Input.Pointer) {
+    if (!this.placementMode) {
+      this.placementGfx.clear();
+      return;
+    }
+
+    const cam = this.cameras.main;
+    const worldX = Math.round((pointer.x - cam.width / 2) / cam.zoom + cam.midPoint.x);
+    const worldY = Math.round((pointer.y - cam.height / 2) / cam.zoom + cam.midPoint.y);
+    const region = getRegionForY(worldY);
+
+    this.placementGfx.clear();
+
+    const gang = this.currentSnapshot.gangs[this.placementMode.gangId];
+    if (!gang) return;
+
+    if (!region) {
+      this.placementGfx.lineStyle(2, 0xef4444, 0.85);
+      this.placementGfx.strokeCircle(worldX, worldY, 32);
+      return;
+    }
+
+    const check = canPurchaseNode(
+      this.currentSnapshot,
+      this.placementMode.gangId,
+      this.placementMode.kind,
+      region,
+      worldX,
+      worldY
+    );
+
+    if (this.placementMode.kind === 'HQ') {
+      this.placementGfx.lineStyle(2, check.allowed ? 0x22c55e : 0xef4444, 0.5);
+      this.placementGfx.strokeCircle(worldX, worldY, BASE_HQ_INFLUENCE_RADIUS);
+    }
+
+    if (check.allowed) {
+      this.placementGfx.fillStyle(0x10b981, 0.35);
+      this.placementGfx.fillRoundedRect(worldX - 34, worldY - 34, 68, 68, 8);
+      this.placementGfx.lineStyle(2.5, 0x34d399, 0.95);
+      this.placementGfx.strokeRoundedRect(worldX - 34, worldY - 34, 68, 68, 8);
+    } else {
+      this.placementGfx.fillStyle(0xef4444, 0.3);
+      this.placementGfx.fillRoundedRect(worldX - 34, worldY - 34, 68, 68, 8);
+      this.placementGfx.lineStyle(2.5, 0xf87171, 0.95);
+      this.placementGfx.strokeRoundedRect(worldX - 34, worldY - 34, 68, 68, 8);
+    }
+  }
+
+  private executePlacementClick(pointer: Phaser.Input.Pointer) {
+    if (!this.placementMode) return;
+
+    const cam = this.cameras.main;
+    const worldX = Math.round((pointer.x - cam.width / 2) / cam.zoom + cam.midPoint.x);
+    const worldY = Math.round((pointer.y - cam.height / 2) / cam.zoom + cam.midPoint.y);
+    const region = getRegionForY(worldY);
+
+    if (!region) return;
+
+    const check = canPurchaseNode(
+      this.currentSnapshot,
+      this.placementMode.gangId,
+      this.placementMode.kind,
+      region,
+      worldX,
+      worldY
+    );
+
+    if (check.allowed) {
+      const mode = this.placementMode;
+      this.cancelPlacementMode();
+
+      this.port.dispatch({
+        type: mode.kind === 'HQ' ? 'PURCHASE_HQ' : 'PURCHASE_NODE',
+        payload: {
+          gangId: mode.gangId,
+          kind: mode.kind,
+          region,
+          x: worldX,
+          y: worldY,
+        },
+      });
+
+      scheduler.step();
+    }
   }
 
   /**
@@ -306,10 +501,73 @@ export class ChumScene extends Phaser.Scene {
   // ==================== RENDERING PIPELINE ====================
   renderWorld(snapshot: WorldSnapshot) {
     this.renderRegionsBackdrop(snapshot);
+    this.renderInfluenceHeatmap(snapshot);
     this.renderPhysicalConnections(snapshot);
     this.renderLocations(snapshot);
     this.renderParallelRoutes(snapshot);
     this.renderVoyageVehicles(snapshot);
+  }
+
+  private renderInfluenceHeatmap(snapshot: WorldSnapshot) {
+    this.influenceGfxUk.clear();
+    this.influenceGfxEur.clear();
+    this.influenceGfxAfr.clear();
+
+    if (!this.isInfluenceZoneVisible) {
+      return;
+    }
+
+    const gfxByRegion: Record<RegionId, Phaser.GameObjects.Graphics> = {
+      UK: this.influenceGfxUk,
+      EUROPE: this.influenceGfxEur,
+      AFRICA: this.influenceGfxAfr,
+    };
+
+    const activeGangs = Object.values(snapshot.gangs).filter((g) => g.status === 'ACTIVE');
+    const radius = BASE_HQ_INFLUENCE_RADIUS;
+
+    for (const gang of activeGangs) {
+      const isSelected = this.selectedGangIds.has(gang.id);
+      const isAnySelected = this.selectedGangIds.size > 0;
+      const alphaMultiplier = isSelected ? 1.0 : (isAnySelected ? 0.35 : 0.85);
+
+      // Find all HQs for this gang
+      const hqs = Object.values(snapshot.locations).filter(
+        (l) => l.gangId === gang.id && l.kind === 'HQ'
+      );
+
+      for (const hq of hqs) {
+        const gfx = gfxByRegion[hq.region];
+        if (!gfx) continue;
+
+        // "darker color - stronger influence - it dissipates with distance from hq"
+        // 12 concentric steps creating smooth radial heat decay
+        const steps = 12;
+        for (let i = steps; i >= 1; i--) {
+          const r = (radius / steps) * i;
+          const heatRatio = 1 - r / radius;
+          const alpha = Math.pow(heatRatio, 1.35) * 0.44 * alphaMultiplier;
+
+          if (alpha > 0.005) {
+            gfx.fillStyle(gang.colorNum, alpha);
+            gfx.fillCircle(hq.x, hq.y, r);
+          }
+        }
+
+        // Inner solid core (high intensity epicenter)
+        gfx.fillStyle(gang.colorNum, 0.55 * alphaMultiplier);
+        gfx.fillCircle(hq.x, hq.y, 22);
+        gfx.lineStyle(1.5, 0xffffff, 0.45 * alphaMultiplier);
+        gfx.strokeCircle(hq.x, hq.y, 22);
+
+        // Subtle radar contour rings
+        gfx.lineStyle(1.5, gang.colorNum, 0.65 * alphaMultiplier);
+        gfx.strokeCircle(hq.x, hq.y, radius);
+
+        gfx.lineStyle(1, 0xffffff, 0.2 * alphaMultiplier);
+        gfx.strokeCircle(hq.x, hq.y, radius * 0.5);
+      }
+    }
   }
 
   private renderRegionsBackdrop(_snapshot: WorldSnapshot) {
@@ -566,6 +824,13 @@ export class ChumScene extends Phaser.Scene {
       badgeGfx.fillCircle(28, -28, 12);
       badgeGfx.lineStyle(1.5, 0xffffff, 0.9);
       badgeGfx.strokeCircle(28, -28, 12);
+
+      const hqLabel = loc.isMainHq ? '⭐ MAIN' : '⚡ HQ';
+      countText.setText(hqLabel);
+      badgeGfx.fillStyle(0x0f172a, 0.9);
+      badgeGfx.fillRoundedRect(-30, -54, 60, 18, 4);
+      badgeGfx.lineStyle(1.5, gang.colorNum, 0.9);
+      badgeGfx.strokeRoundedRect(-30, -54, 60, 18, 4);
     }
 
     if (loc.kind === 'RECRUITER') {

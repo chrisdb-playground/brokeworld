@@ -40,6 +40,9 @@ game.events.once('ready', () => {
   hudOverlay = new HudOverlay(engine, scheduler, {
     onSelectGangs: (gangIds) => scene.setSelectedGangs(gangIds),
     onFocusLocation: (locId) => scene.focusLocation(locId),
+    onToggleInfluence: () => scene.toggleInfluence(),
+    onStartPlacement: (data) => scene.startPlacementMode(data),
+    onCancelPlacement: () => scene.cancelPlacementMode(),
   });
 
   scene.setEventsHandler({
@@ -48,5 +51,8 @@ game.events.once('ready', () => {
     onSelectRoute: (route) => hudOverlay.selectRoute(route),
     onSelectVoyage: (voyage) => hudOverlay.selectVoyage(voyage),
     onDeselectAll: () => hudOverlay.deselectGang(),
+    onCancelPlacement: () => {
+      // Clean up any UI placement states if needed
+    },
   });
 });

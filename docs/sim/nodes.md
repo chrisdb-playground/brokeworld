@@ -15,7 +15,7 @@ Every node belongs to exactly one of four functional kinds, each bound to a spec
 
 | Kind | Purpose | Tile Family | Default Variant | Permitted Regions | Can Recruit Chums? | Can Host Routes? |
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: |
-| **`HQ`** | Central syndicate command post. | `logistics-hub` | `mk1` | `EUROPE` | ❌ No | ❌ No |
+| **`HQ`** | Central syndicate command post & regional influence emitter. | `logistics-hub` | `mk1` | `AFRICA`, `EUROPE`, `UK` | ❌ No | ❌ No |
 | **`WORKSHOP`** | Fleet staging, mechanic shop & labor destination. | `industrial-press` | `mk1-north` | `EUROPE` | ❌ No | ✅ **Target Only** (from same-region Depot) |
 | **`RECRUITER`** | Commercial origin depot where Chumigrants assemble and purchase passage. | `crusher` | `mk3` | `AFRICA`, `EUROPE` | ✅ **Yes** | ✅ **Source Only** (to Depot) |
 | **`DEPOT`** | Safe-house terminal where voyages arrive and Chums assemble before workshop transfer. | `pressure-tank` | `mk1-north` | `EUROPE`, `UK` | ❌ No | ✅ **Target** (from Recruiter) & **Source** (to Workshop) |
@@ -35,24 +35,35 @@ if (loc.kind === 'WORKSHOP' && loc.tileFamily !== 'industrial-press') throw new 
 
 1. **Strict Monopolistic Ownership**:
    Every node in the simulation contains a mandatory `gangId` property. Neutral or shared operational nodes are **strictly forbidden**.
-   ```typescript
-   export interface LocationDef {
-     id: string;
-     name: string;
-     region: RegionId;
-     x: number;
-     y: number;
-     tileFamily: string;
-     tileVariant: string;
-     kind: LocationKind;
-     gangId: string; // Mandatory owner
-   }
-   ```
 2. **Owner-Exclusivity for Commercial Operations**:
    - Only the gang that owns a `RECRUITER` node may sign up Chums waiting at that location.
    - Only the gang that owns both the source `RECRUITER` and the destination `DEPOT` may operate a route connecting them. Foreign gangs cannot lease or route through competitor nodes.
-3. **HQ Persistence**:
-   Each active gang maintains exactly one `HQ` node. Dissolving a gang removes or bankrupts associated operations, but during active status, the HQ is non-negotiable.
+3. **Regional HQs & Influence Zones**:
+   - Each active gang begins the simulation with an HQ in **each of the 3 regions** (`AFRICA`, `EUROPE`, `UK`).
+   - The European HQ serves as the **Primary Main HQ** (`isMainHq: true`), housing the gang's Capo and reserve hoods on standby.
+   - Additional regional branch HQs can be purchased ($4,000).
+
+---
+
+## ⚡ HQ Influence Zones & The Heat Map
+
+Every gang HQ projects an area of influence (**Influence Zone / Heat Map**):
+
+1. **Influence Dissipation**:
+   - Influence heat is maximum ($1.0$, 100%) at the HQ epicenter and dissipates linearly with Euclidean distance up to a base radius of $R = 260\text{px}$.
+   - Formula: $\text{heat}(d) = 1.0 - (d / R)$ for $d \le R$; otherwise $0.0$.
+2. **Strict Regional Border Cutoff**:
+   - **Heat maps strictly stop at international/maritime borders**: An HQ located in Europe projects zero influence into North Africa or the United Kingdom, even if the physical distance is within $260\text{px}$.
+   - **Rule**: *To acquire operational nodes in a region, a gang must first own or purchase an HQ in that region.*
+3. **Rival Gang Restriction & Slight Overlap**:
+   - Rival gang HQs restrict and push back each other's influence zones.
+   - A damped restriction factor ($\alpha = 0.65$) allows a slight, contested overlap buffer at the border where both gangs hold positive influence, while strong proximity to a rival HQ completely snuffs out competitor influence.
+4. **Acquisition Gating & Future Stats Multiplier**:
+   - Operational nodes (`RECRUITER`, `DEPOT`, `WORKSHOP`) can **only be purchased inside an active HQ heat map** ($\text{heat} \ge 0.05$).
+   - Nodes gain a stats multiplier based on proximity heat: $\text{multiplier} = 1.0 + 0.5 \times \text{heat}$.
+5. **Interactive UI Representation**:
+   - Visualized on the world map with darker, saturated color tinting near the HQ that smoothly dissipates with distance.
+   - View is toggleable via the HUD button `🔥 Influence` or hotkeys `I` and `H`.
 
 ---
 

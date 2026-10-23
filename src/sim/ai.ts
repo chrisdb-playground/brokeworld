@@ -140,9 +140,12 @@ export function processGangAI(
         const recEurId = `REC_${synd.id}_EUROPE`;
         const depotUkId = `DEPOT_${synd.id}_UK`;
 
+        const hqAfrId = `HQ_${synd.id}_AFRICA`;
+        const hqUkId = `HQ_${synd.id}_UK`;
+
         state.locations[hqId] = {
           id: hqId,
-          name: `${synd.name} HQ`,
+          name: `${synd.name} European HQ`,
           region: 'EUROPE',
           x: synd.xOff,
           y: 250,
@@ -150,6 +153,33 @@ export function processGangAI(
           tileVariant: 'mk1',
           kind: 'HQ',
           gangId: synd.id,
+          isMainHq: true,
+        };
+
+        state.locations[hqAfrId] = {
+          id: hqAfrId,
+          name: `${synd.name} Africa HQ`,
+          region: 'AFRICA',
+          x: synd.xOff + 80,
+          y: 640,
+          tileFamily: 'logistics-hub',
+          tileVariant: 'mk1',
+          kind: 'HQ',
+          gangId: synd.id,
+          isMainHq: false,
+        };
+
+        state.locations[hqUkId] = {
+          id: hqUkId,
+          name: `${synd.name} UK HQ`,
+          region: 'UK',
+          x: synd.xOff - 20,
+          y: 90,
+          tileFamily: 'logistics-hub',
+          tileVariant: 'mk1',
+          kind: 'HQ',
+          gangId: synd.id,
+          isMainHq: false,
         };
 
         state.locations[wsId] = {
@@ -219,13 +249,15 @@ export function processGangAI(
           colorNum: synd.colorNum,
           emblem: synd.emblem,
           hqLocationId: hqId,
+          mainHqLocationId: hqId,
+          hqLocationIds: [hqId, hqAfrId, hqUkId],
           workshopLocationId: wsId,
           recruiterLocationIds: [recAfrId, recEurId],
           depotLocationIds: [depotEurId, depotUkId],
           cash: 18000,
           reputation: 75,
           status: 'ACTIVE',
-          recentDecisions: [{ tick: state.tick, action: 'FOUND_GANG', reason: 'Formed complete 3-region network.' }],
+          recentDecisions: [{ tick: state.tick, action: 'FOUND_GANG', reason: 'Formed complete 3-region network with regional HQs.' }],
           stats: { recruitsTotal: 0, voyagesLaunched: 0, voyagesSuccessful: 0, voyagesDisrupted: 0, revenueTotal: 0 },
         };
 

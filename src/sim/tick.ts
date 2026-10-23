@@ -6,6 +6,8 @@ import { processVoyages } from './voyages';
 import { processGangAI } from './ai';
 import { assertInvariants } from './invariants';
 
+import { executePurchaseHQ, executePurchaseNode } from './influence';
+
 export function tickWorld(
   state: WorldSnapshot,
   prng: SeededPrng,
@@ -18,7 +20,7 @@ export function tickWorld(
 
   // 2. Process commands (if any dispatched from UI/inspector)
   for (const cmd of commands) {
-    handleCommand(state, cmd, newEvents);
+    handleCommand(state, cmd, newEvents, prng);
   }
 
   // 3. Chumigrant Spawning (East Depots only)
@@ -50,7 +52,12 @@ export function tickWorld(
   return state;
 }
 
-function handleCommand(state: WorldSnapshot, cmd: SimCommand, events: SimEvent[]) {
+function handleCommand(
+  state: WorldSnapshot,
+  cmd: SimCommand,
+  events: SimEvent[],
+  prng: SeededPrng
+) {
   if (cmd.type === 'GANG_AID') {
     const payload = cmd.payload as { gangId: string; amount: number };
     const g = state.gangs[payload.gangId];
@@ -63,6 +70,47 @@ function handleCommand(state: WorldSnapshot, cmd: SimCommand, events: SimEvent[]
         description: `Observer grant of $${payload.amount} disbursed to ${g.name}.`,
         importance: 'LOW',
         gangId: g.id,
+      });
+    }
+  } else if (cmd.type === 'PURCHASE_HQ') {
+    const payload = cmd.payload as {
+      gangId: string;
+      region: import('./types').RegionId;
+      x: number;
+      y: number;
+      name?: string;
+    };
+    try {
+      executePurchaseHQ(state, payload.gangId, payload.region, payload.x, payload.y, prng, payload.name, events);
+    } catch (err: unknown) {
+      events.push({
+        id: `EVT_ERR_PURCHASE_HQ_${state.tick}`,
+        tick: state.tick,
+        type: 'OPERATION_CLOSED',
+        description: `Failed to purchase HQ for ${payload.gangId}: ${err instanceof Error ? err.message : String(err)}`,
+        importance: 'LOW',
+        gangId: payload.gangId,
+      });
+    }
+  } else if (cmd.type === 'PURCHASE_NODE') {
+    const payload = cmd.payload as {
+      gangId: string;
+      kind: import('./types').LocationKind;
+      region: import('./types').RegionId;
+      x: number;
+      y: number;
+      name?: string;
+    };
+    try {
+      executePurchaseNode(state, payload.gangId, payload.kind, payload.region, payload.x, payload.y, prng, payload.name, events);
+    } catch (err: unknown) {
+      events.push({
+        id: `EVT_ERR_PURCHASE_NODE_${state.tick}`,
+        tick: state.tick,
+        type: 'OPERATION_CLOSED',
+        description: `Failed to purchase ${payload.kind} for ${payload.gangId}: ${err instanceof Error ? err.message : String(err)}`,
+        importance: 'LOW',
+        gangId: payload.gangId,
       });
     }
   }

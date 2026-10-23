@@ -189,7 +189,11 @@ export function releaseHoodFromVoyage(
   gang: GangState | undefined,
   state: WorldSnapshot
 ): void {
-  const hqId = gang?.hqLocationId || Object.values(state.locations).find((l) => l.gangId === hood.gangId && l.kind === 'HQ')?.id || '';
+  const hqId =
+    gang?.mainHqLocationId ||
+    gang?.hqLocationId ||
+    Object.values(state.locations).find((l) => l.gangId === hood.gangId && l.kind === 'HQ')?.id ||
+    '';
   hood.role = 'STANDBY';
   hood.assignment = {
     type: 'IDLE_HQ',
@@ -210,16 +214,23 @@ export function ensureGangNodesStaffed(
   prng: SeededPrng,
   events?: SimEvent[]
 ): void {
-  // 1. Staff HQ
-  const hq = state.locations[gang.hqLocationId];
-  if (hq && (!hq.assignedHoodId || !state.hoods[hq.assignedHoodId])) {
-    const existingHood = Object.values(state.hoods).find(
-      (h) => h.gangId === gang.id && h.assignment.type === 'MANAGE_NODE' && h.assignment.targetId === hq.id
-    );
-    if (existingHood) {
-      hq.assignedHoodId = existingHood.id;
-    } else {
-      hireHood(state, gang.id, 'HQ_BOSS', { type: 'MANAGE_NODE', targetId: hq.id, role: 'HQ_BOSS' }, prng, events);
+  // 1. Staff all regional HQs
+  const hqIds =
+    gang.hqLocationIds && gang.hqLocationIds.length > 0
+      ? gang.hqLocationIds
+      : [gang.hqLocationId];
+
+  for (const hqId of hqIds) {
+    const hq = state.locations[hqId];
+    if (hq && (!hq.assignedHoodId || !state.hoods[hq.assignedHoodId])) {
+      const existingHood = Object.values(state.hoods).find(
+        (h) => h.gangId === gang.id && h.assignment.type === 'MANAGE_NODE' && h.assignment.targetId === hq.id
+      );
+      if (existingHood) {
+        hq.assignedHoodId = existingHood.id;
+      } else {
+        hireHood(state, gang.id, 'HQ_BOSS', { type: 'MANAGE_NODE', targetId: hq.id, role: 'HQ_BOSS' }, prng, events);
+      }
     }
   }
 

@@ -15,6 +15,7 @@ export interface LocationDef {
   kind: LocationKind;
   gangId: string; // All nodes are owned by a single gang
   assignedHoodId?: string; // Hood currently managing or stationed at this node
+  isMainHq?: boolean; // True for gang's primary headquarters
 }
 
 export interface PhysicalConnectionDef {
@@ -38,7 +39,9 @@ export interface GangState {
   color: string;
   colorNum: number;
   emblem: string;
-  hqLocationId: string;
+  hqLocationId: string; // Primary HQ location ID (backward compatible)
+  mainHqLocationId?: string; // Main HQ location holding gang's Capo and reserve hoods
+  hqLocationIds?: string[]; // All HQs owned by this gang across regions
   workshopLocationId?: string;
   recruiterLocationIds?: string[];
   depotLocationIds?: string[];

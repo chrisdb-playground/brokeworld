@@ -4,16 +4,22 @@ import type {
   ChumigrantState,
   GangState,
   LocationDef,
+  LocationKind,
+  RegionId,
   RouteServiceState,
   VoyageState,
   WorldSnapshot,
 } from '../sim/types';
+import { getEffectiveInfluenceHeat, getNodeHeatMultiplier } from '../sim/influence';
 import { ChumRenderer } from './ChumRenderer';
 
 export interface HudOverlayCallbacks {
   onSelectGang?: (gangId: string | null) => void;
   onSelectGangs?: (gangIds: Set<string>) => void;
   onFocusLocation?: (locId: string) => void;
+  onToggleInfluence?: () => boolean;
+  onStartPlacement?: (data: { gangId: string; kind: LocationKind; cost: number; region?: RegionId }) => void;
+  onCancelPlacement?: () => void;
 }
 
 export class HudOverlay {
@@ -22,11 +28,15 @@ export class HudOverlay {
   private onSelectGangCallback?: (gangId: string | null) => void;
   private onSelectGangsCallback?: (gangIds: Set<string>) => void;
   private onFocusLocation?: (locId: string) => void;
+  private onToggleInfluenceCallback?: () => boolean;
+  private onStartPlacementCallback?: (data: { gangId: string; kind: LocationKind; cost: number; region?: RegionId }) => void;
+  private onCancelPlacementCallback?: () => void;
 
   private currentSnapshot!: WorldSnapshot;
   private selectedEntityType: 'CHUM' | 'GANG' | 'LOCATION' | 'ROUTE' | 'VOYAGE' | null = null;
   private selectedEntityId: string | null = null;
   private selectedGangIds: Set<string> = new Set();
+  private isInfluenceVisible = true;
 
   // Persistent DOM cache for gang cards to prevent recreating DOM on each sim tick
   private gangCardElements: Map<string, HTMLElement> = new Map();
@@ -41,6 +51,9 @@ export class HudOverlay {
     this.onSelectGangCallback = callbacks.onSelectGang;
     this.onSelectGangsCallback = callbacks.onSelectGangs;
     this.onFocusLocation = callbacks.onFocusLocation;
+    this.onToggleInfluenceCallback = callbacks.onToggleInfluence;
+    this.onStartPlacementCallback = callbacks.onStartPlacement;
+    this.onCancelPlacementCallback = callbacks.onCancelPlacement;
 
     this.mountDom();
     this.port.subscribe((snapshot) => {
@@ -160,6 +173,7 @@ export class HudOverlay {
             <button class="spd-btn" data-speed="5">5×</button>
             <button class="spd-btn" data-speed="20">20×</button>
             <button class="spd-btn" id="btn-step">⏯ Step</button>
+            <button class="spd-btn active" id="btn-toggle-influence" title="Toggle HQ Influence Zones (I)">🔥 Influence</button>
           </div>
         </div>
 
@@ -197,6 +211,7 @@ export class HudOverlay {
             <div class="gang-sel-controls">
               <button id="btn-select-all" class="btn-gang-action">👁 Select All</button>
               <button id="btn-deselect-gang" class="btn-gang-action btn-danger">✕ Hide All</button>
+              <button id="btn-influence-toggle" class="btn-gang-action">🔥 Influence: ON</button>
             </div>
           </div>
           <div id="gangs-legend" class="gangs-legend-list"></div>
@@ -232,6 +247,24 @@ export class HudOverlay {
     root.querySelector('#btn-step')?.addEventListener('click', () => {
       this.scheduler.step();
     });
+
+    const toggleInfluenceAction = () => {
+      if (this.onToggleInfluenceCallback) {
+        this.isInfluenceVisible = this.onToggleInfluenceCallback();
+        const topBtn = document.getElementById('btn-toggle-influence');
+        const altBtn = document.getElementById('btn-influence-toggle');
+        if (topBtn) {
+          topBtn.classList.toggle('active', this.isInfluenceVisible);
+          topBtn.textContent = this.isInfluenceVisible ? '🔥 Influence' : '💤 Influence Off';
+        }
+        if (altBtn) {
+          altBtn.textContent = this.isInfluenceVisible ? '🔥 Influence: ON' : '💤 Influence: OFF';
+        }
+      }
+    };
+
+    root.querySelector('#btn-toggle-influence')?.addEventListener('click', toggleInfluenceAction);
+    root.querySelector('#btn-influence-toggle')?.addEventListener('click', toggleInfluenceAction);
 
     root.querySelector('#btn-select-all')?.addEventListener('click', () => {
       this.selectAllGangs();
@@ -447,7 +480,9 @@ export class HudOverlay {
       if (!gang) return;
 
       title.textContent = `GANG DOSSIER`;
-      const hq = this.currentSnapshot.locations[gang.hqLocationId];
+      const hqs = (gang.hqLocationIds || [gang.hqLocationId])
+        .map((id) => this.currentSnapshot.locations[id])
+        .filter(Boolean);
       const ws = gang.workshopLocationId ? this.currentSnapshot.locations[gang.workshopLocationId] : null;
       const routes = Object.values(this.currentSnapshot.routes).filter((r) => r.gangId === gang.id);
 
@@ -462,7 +497,12 @@ export class HudOverlay {
         </div>
 
         <div class="insp-grid">
-          <div class="insp-row"><span class="lbl">HEADQUARTERS</span><span class="val">${hq?.name || 'HQ'}</span></div>
+          <div class="insp-row">
+            <span class="lbl">REGIONAL HQS</span>
+            <span class="val" style="font-size: 11px; line-height: 1.4;">
+              ${hqs.map((h) => `• ${h.name} (${h.region})${h.isMainHq ? ' ⭐' : ''}`).join('<br>')}
+            </span>
+          </div>
           <div class="insp-row"><span class="lbl">WORKSHOP</span><span class="val">${ws?.name || 'Workshop'}</span></div>
           <div class="insp-row"><span class="lbl">RECRUITERS</span><span class="val">${recruiters.join(', ') || 'None'}</span></div>
           <div class="insp-row"><span class="lbl">DEPOTS</span><span class="val">${depots.join(', ') || 'None'}</span></div>
@@ -472,6 +512,25 @@ export class HudOverlay {
           <div class="insp-row"><span class="lbl">SUCCESSFUL VOYAGES</span><span class="val text-green">${gang.stats.voyagesSuccessful}</span></div>
           <div class="insp-row"><span class="lbl">DISRUPTED VOYAGES</span><span class="val text-red">${gang.stats.voyagesDisrupted}</span></div>
           <div class="insp-row"><span class="lbl">ACTIVE ROUTES</span><span class="val">${routes.filter((r) => r.status === 'ACTIVE').length}</span></div>
+        </div>
+
+        <div class="insp-subhead">PURCHASE INFRASTRUCTURE</div>
+        <div class="build-controls-grid">
+          <button class="btn-build-action btn-build-hq" data-gang-id="${gang.id}" data-kind="HQ" data-cost="4000">
+            🏰 Buy Regional HQ <b>$4,000</b>
+          </button>
+          <button class="btn-build-action" data-gang-id="${gang.id}" data-kind="RECRUITER" data-cost="2500">
+            🏭 Buy Recruiter <b>$2,500</b>
+          </button>
+          <button class="btn-build-action" data-gang-id="${gang.id}" data-kind="DEPOT" data-cost="2000">
+            ⛽ Buy Depot <b>$2,000</b>
+          </button>
+          <button class="btn-build-action" data-gang-id="${gang.id}" data-kind="WORKSHOP" data-cost="3500">
+            🔧 Buy Workshop <b>$3,500</b>
+          </button>
+        </div>
+        <div class="build-hint">
+          💡 Click button above, then click map inside HQ heat map to place node. (Right-click or ESC to cancel).
         </div>
 
         <div class="insp-subhead">EMPLOYED CHUM HOODS (${gangHoods.length})</div>
@@ -503,6 +562,18 @@ export class HudOverlay {
           `).join('')}
         </div>
       `;
+
+      content.querySelectorAll<HTMLButtonElement>('.btn-build-action').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const gId = btn.getAttribute('data-gang-id');
+          const kind = btn.getAttribute('data-kind') as LocationKind;
+          const cost = parseInt(btn.getAttribute('data-cost') || '2500', 10);
+          if (gId && kind && this.onStartPlacementCallback) {
+            this.onStartPlacementCallback({ gangId: gId, kind, cost });
+          }
+        });
+      });
     } else if (this.selectedEntityType === 'LOCATION') {
       const loc = this.currentSnapshot.locations[this.selectedEntityId!];
       if (!loc) return;
@@ -526,6 +597,10 @@ export class HudOverlay {
         : [];
       const assignedHood = loc.assignedHoodId ? this.currentSnapshot.hoods[loc.assignedHoodId] : null;
 
+      const effectiveHeat = getEffectiveInfluenceHeat(this.currentSnapshot, loc.gangId, loc.x, loc.y);
+      const heatPct = Math.round(effectiveHeat * 100);
+      const multiplier = getNodeHeatMultiplier(effectiveHeat);
+
       content.innerHTML = `
         <div class="location-banner">
           <h2>${loc.name}</h2>
@@ -534,6 +609,11 @@ export class HudOverlay {
 
         <div class="insp-grid">
           ${gang ? `<div class="insp-row"><span class="lbl">OWNING GANG</span><span class="val" style="color: ${gang.color}">${gang.emblem} ${gang.name}</span></div>` : ''}
+          <div class="insp-row"><span class="lbl">INFLUENCE HEAT</span><span class="val highlight">${heatPct}% (${multiplier}x Stats Multiplier)</span></div>
+          ${loc.kind === 'HQ' ? `
+            <div class="insp-row"><span class="lbl">HQ STATUS</span><span class="val highlight">${loc.isMainHq ? '⭐ Primary Gang HQ (Holds Reserves)' : 'Regional Command Post'}</span></div>
+            <div class="insp-row"><span class="lbl">INFLUENCE ZONE</span><span class="val highlight">260px Radius (Border-Clipped)</span></div>
+          ` : ''}
           ${assignedHood ? `
             <div class="insp-row"><span class="lbl">MANAGING HOOD</span><span class="val highlight">${assignedHood.name}</span></div>
             <div class="insp-row"><span class="lbl">DUTY</span><span class="val" style="font-size: 10px; color: #cbd5e1;">${assignedHood.role.replace(/_/g, ' ')}</span></div>
