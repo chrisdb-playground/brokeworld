@@ -4,6 +4,7 @@ import { createInitialWorld } from '../src/sim/createWorld';
 import { tickWorld } from '../src/sim/tick';
 import { processRecruitment } from '../src/sim/recruitment';
 import { LocalGameEngine } from '../src/app/GamePort';
+import { executeClaimCandidateNode, executePurchaseBorderRoute } from '../src/sim/influence';
 
 describe('Chum World Simulation Core', () => {
   it('is completely deterministic across runs with the same seed', () => {
@@ -28,10 +29,12 @@ describe('Chum World Simulation Core', () => {
     const engine = new LocalGameEngine(99);
     const state = engine.getSnapshot();
 
-    // Check all nodes have owner gang
+    // Check all nodes have owner gang or neutral candidate
     for (const loc of Object.values(state.locations)) {
       expect(loc.gangId).toBeDefined();
-      expect(state.gangs[loc.gangId]).toBeDefined();
+      if (loc.gangId !== 'NEUTRAL') {
+        expect(state.gangs[loc.gangId]).toBeDefined();
+      }
       expect(['AFRICA', 'EUROPE', 'UK']).toContain(loc.region);
     }
 
@@ -98,10 +101,10 @@ describe('Chum World Simulation Core', () => {
     const prng = createPrng(888);
     const state = createInitialWorld(prng);
 
-    // Pick an Africa-to-Europe route
-    const afrRoute = Object.values(state.routes).find(
-      (r) => state.locations[r.sourceId]?.region === 'AFRICA' && state.locations[r.targetId]?.region === 'EUROPE'
-    )!;
+    // Claim recruiter and depot, and establish border route
+    const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_REC_NEON_AFR', prng);
+    const depot = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_DEPOT_NEON_EUR', prng);
+    const afrRoute = executePurchaseBorderRoute(state, 'GANG_NEON_GILL', rec.id, depot.id, prng);
     expect(afrRoute).toBeDefined();
 
     // Create a Chum from Tripoli
@@ -154,7 +157,9 @@ describe('Chum World Simulation Core', () => {
     const prng = createPrng(1234);
     const state = createInitialWorld(prng);
 
-    const route = Object.values(state.routes)[0];
+    const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_REC_NEON_AFR', prng);
+    const depot = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_DEPOT_NEON_EUR', prng);
+    const route = executePurchaseBorderRoute(state, 'GANG_NEON_GILL', rec.id, depot.id, prng);
     const chum = {
       id: 'CHUM_TEST_1',
       name: 'Testy Chum',
@@ -196,12 +201,12 @@ describe('Chum World Simulation Core', () => {
     const prng = createPrng(999);
     const state = createInitialWorld(prng);
 
-    // Check all initial gangs have hoods employed
-    expect(Object.keys(state.hoods).length).toBeGreaterThanOrEqual(18); // 3 gangs * (1 HQ + 1 WS + 2 REC + 2 DEPOT + 1 STANDBY)
+    // Gangs start with 2 HQs + 1 Scout = 3 hoods per gang (9 total)
+    expect(Object.keys(state.hoods).length).toBe(9);
 
     for (const gang of Object.values(state.gangs)) {
       const gangHoods = Object.values(state.hoods).filter((h) => h.gangId === gang.id);
-      expect(gangHoods.length).toBeGreaterThanOrEqual(6);
+      expect(gangHoods.length).toBe(3);
 
       // Check HQ has an assigned boss Hood
       const hq = state.locations[gang.hqLocationId];
@@ -209,12 +214,9 @@ describe('Chum World Simulation Core', () => {
       expect(state.hoods[hq.assignedHoodId!].role).toBe('HQ_BOSS');
       expect(state.hoods[hq.assignedHoodId!].currentTaskDescription).toContain('Directing syndicate operations');
 
-      // Check Recruiters have assigned Hoods
-      for (const recId of gang.recruiterLocationIds || []) {
-        const rec = state.locations[recId];
-        expect(rec.assignedHoodId).toBeDefined();
-        expect(state.hoods[rec.assignedHoodId!].role).toBe('RECRUITER_MANAGER');
-      }
+      // Check gang has an active Scout Hood
+      const scout = gangHoods.find((h) => h.role === 'SCOUT');
+      expect(scout).toBeDefined();
     }
   });
 
@@ -222,8 +224,9 @@ describe('Chum World Simulation Core', () => {
     const prng = createPrng(555);
     const state = createInitialWorld(prng);
 
-    const recLoc = Object.values(state.locations).find((l) => l.kind === 'RECRUITER')!;
-    expect(recLoc).toBeDefined();
+    const recLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_REC_NEON_AFR', prng);
+    const depotLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_DEPOT_NEON_EUR', prng);
+    executePurchaseBorderRoute(state, 'GANG_NEON_GILL', recLoc.id, depotLoc.id, prng);
 
     // Detach the managing Hood from this recruiter
     const oldHoodId = recLoc.assignedHoodId;
@@ -267,29 +270,27 @@ describe('Chum World Simulation Core', () => {
     const prng = createPrng(4242);
     const state = createInitialWorld(prng);
 
-    // Verify each gang has a depot-to-workshop route in the same region
-    for (const gang of Object.values(state.gangs)) {
-      const depWsRoute = Object.values(state.routes).find(
-        (r) =>
-          r.gangId === gang.id &&
-          state.locations[r.sourceId]?.kind === 'DEPOT' &&
-          state.locations[r.targetId]?.kind === 'WORKSHOP'
-      );
-      expect(depWsRoute).toBeDefined();
-      expect(depWsRoute!.mode).toBe('VAN');
-      const src = state.locations[depWsRoute!.sourceId];
-      const tgt = state.locations[depWsRoute!.targetId];
-      expect(src.region).toBe(tgt.region);
-    }
+    // Claim European depot and workshop for Neon Gill
+    const depLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_DEPOT_NEON_EUR', prng);
+    const wsLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_WS_NEON', prng);
 
-    // Populate Neon Depot with 6 arrived Chums
-    const depRoute = Object.values(state.routes).find(
+    // Advance 1 tick to establish automatic intra-region route
+    tickWorld(state, prng);
+
+    const depWsRoute = Object.values(state.routes).find(
       (r) =>
         r.gangId === 'GANG_NEON_GILL' &&
         state.locations[r.sourceId]?.kind === 'DEPOT' &&
         state.locations[r.targetId]?.kind === 'WORKSHOP'
-    )!;
-    expect(depRoute).toBeDefined();
+    );
+    expect(depWsRoute).toBeDefined();
+    expect(depWsRoute!.mode).toBe('VAN');
+    const src = state.locations[depWsRoute!.sourceId];
+    const tgt = state.locations[depWsRoute!.targetId];
+    expect(src.region).toBe(tgt.region);
+
+    // Populate Neon Depot with 6 arrived Chums
+    const depRoute = depWsRoute!;
 
     for (let i = 1; i <= 6; i++) {
       const cid = `CHUM_DEPOT_TEST_${i}`;

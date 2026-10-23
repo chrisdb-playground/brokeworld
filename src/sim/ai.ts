@@ -6,34 +6,40 @@ import type {
 } from './types';
 import type { SeededPrng } from './rng';
 import { ensureGangNodesStaffed, hireHood } from './hoods';
-
-let routeSeq = 100;
+import { executeClaimCandidateNode, executePurchaseBorderRoute } from './influence';
 
 export function processGangAI(
   state: WorldSnapshot,
   prng: SeededPrng,
   events: SimEvent[]
 ): void {
-  // Gangs review operations periodically (every 60 ticks)
-  if (state.tick % 60 !== 0) {
+  // Gangs review operations periodically (every 40 ticks)
+  if (state.tick % 40 !== 0) {
     return;
   }
 
   for (const gang of Object.values(state.gangs)) {
     if (gang.status !== 'ACTIVE') continue;
 
-    // Staff any unmanaged gang nodes with Hoods
+    // 1. Staff any unmanaged gang nodes or border routes with Hoods
     ensureGangNodesStaffed(state, gang, prng, events);
 
-    const gangRoutes = Object.values(state.routes).filter(
-      (r: RouteServiceState) => r.gangId === gang.id && r.status === 'ACTIVE'
+    // 2. Ensure active Scout Hood exists
+    const gangScouts = Object.values(state.hoods).filter(
+      (h) => h.gangId === gang.id && h.role === 'SCOUT'
     );
+    if (gangScouts.length === 0 && gang.cash >= 400) {
+      hireHood(
+        state,
+        gang.id,
+        'SCOUT',
+        { type: 'SCOUT_ZONE', targetId: gang.mainHqLocationId || gang.hqLocationId, role: 'SCOUT' },
+        prng,
+        events
+      );
+    }
 
-    // 1. Upkeep costs
-    const totalUpkeep = 45 + gangRoutes.length * 30;
-    gang.cash -= totalUpkeep;
-
-    // 2. Bankruptcy check
+    // 3. Upkeep / Bankruptcy check
     if (gang.cash < -6000) {
       gang.status = 'BANKRUPT';
       addDecision(gang, state.tick, 'BANKRUPTCY', 'Severe debt exceeded credit limit.');
@@ -46,78 +52,59 @@ export function processGangAI(
         gangId: gang.id,
       });
 
-      for (const r of gangRoutes) {
+      for (const r of Object.values(state.routes).filter((r) => r.gangId === gang.id)) {
         r.status = 'CLOSING';
       }
       continue;
     }
 
-    // 3. Establish cross-border route if missing:
-    // Rule: "all nodes are owned by a single gang, can only be used by that gang"
-    // Rule: "voyages are recruiter-> depot only, not depot->"
-    // Rule: "1 route max between nodes"
-    const recIds = gang.recruiterLocationIds || [];
-    const depotIds = gang.depotLocationIds || [];
-    if (gangRoutes.length < recIds.length && recIds.length > 0 && depotIds.length > 0) {
-      for (let i = 0; i < recIds.length; i++) {
-        const recId = recIds[i];
-        const depotId = depotIds[i] || depotIds[0];
+    // 4. Purchase Discovered Candidate Nodes
+    // Priority order: Recruiter -> Depot -> Workshop -> Regional HQ
+    if (gang.discoveredNodeIds && gang.discoveredNodeIds.length > 0) {
+      const candidates = gang.discoveredNodeIds
+        .map((id) => state.locations[id])
+        .filter((loc) => loc && loc.operationalStatus === 'DISCOVERED_CANDIDATE');
+
+      // Sort by strategic priority
+      const kindPriority: Record<string, number> = {
+        RECRUITER: (gang.recruiterLocationIds || []).length === 0 ? 1 : 3,
+        DEPOT: (gang.depotLocationIds || []).length === 0 ? 2 : 4,
+        WORKSHOP: !gang.workshopLocationId ? 5 : 8,
+        HQ: 6,
+      };
+
+      candidates.sort((a, b) => (kindPriority[a.kind] || 9) - (kindPriority[b.kind] || 9));
+
+      for (const cand of candidates) {
+        const cost = cand.candidateCost || (cand.kind === 'HQ' ? 3500 : (cand.kind === 'WORKSHOP' ? 2500 : (cand.kind === 'DEPOT' ? 1500 : 1800)));
+        // Retain $500 safety reserve for payroll
+        if (gang.cash >= cost + 500) {
+          try {
+            executeClaimCandidateNode(state, gang.id, cand.id, prng, events);
+            addDecision(gang, state.tick, `PURCHASE_${cand.kind}`, `Acquired ${cand.name} in ${cand.region} ($${cost}).`);
+            break; // One purchase per cycle to stagger growth
+          } catch {
+            // Insufficient funds or invalid
+          }
+        }
+      }
+    }
+
+    // 5. Purchase Discovered Cross-Border Routes
+    if (gang.discoveredRouteIds && gang.discoveredRouteIds.length > 0 && gang.cash >= 1600) {
+      const routeConnKey = gang.discoveredRouteIds[0];
+      const parts = routeConnKey.replace('CONN__', '').split('__');
+      if (parts.length === 2) {
+        const [recId, depotId] = parts;
         const rec = state.locations[recId];
         const depot = state.locations[depotId];
-        if (rec && depot) {
-          const existingRoute = Object.values(state.routes).find(
-            (r) => r.sourceId === rec.id && r.targetId === depot.id && r.status === 'ACTIVE'
-          );
 
-          if (!existingRoute && gang.cash >= 1500) {
-            gang.cash -= 1200;
-            const routeId = `ROUTE_${gang.id}_${routeSeq++}`;
-            const connId = `CONN_${rec.id}_${depot.id}`;
-            if (!state.connections[connId]) {
-              state.connections[connId] = {
-                id: connId,
-                sourceId: rec.id,
-                targetId: depot.id,
-                isCrossBorder: true,
-                distance: 300,
-                mode: 'SEA',
-              };
-            }
-
-            state.routes[routeId] = {
-              id: routeId,
-              gangId: gang.id,
-              connectionId: connId,
-              sourceId: rec.id,
-              targetId: depot.id,
-              mode: 'BOAT',
-              capacity: 4,
-              price: 310,
-              durationTicks: 65,
-              reliability: 0.98,
-              status: 'ACTIVE',
-              totalPassengers: 0,
-              revenue: 0,
-              activeVoyageCount: 0,
-            };
-            state.stats.totalActiveRoutes++;
-
-            addDecision(
-              gang,
-              state.tick,
-              'REESTABLISH_ROUTE',
-              `Restored operational link from ${rec.name} to ${depot.name}.`
-            );
-
-            events.push({
-              id: `EVT_OPEN_R_${routeId}`,
-              tick: state.tick,
-              type: 'ROUTE_OPENED',
-              description: `${gang.name} restored cross-border route from ${rec.name} to ${depot.name}.`,
-              importance: 'MEDIUM',
-              gangId: gang.id,
-            });
-            break;
+        if (rec && depot && rec.gangId === gang.id && depot.gangId === gang.id && rec.region !== depot.region) {
+          try {
+            executePurchaseBorderRoute(state, gang.id, rec.id, depot.id, prng, events);
+            addDecision(gang, state.tick, 'PURCHASE_ROUTE', `Established cross-border route from ${rec.name} to ${depot.name}.`);
+          } catch {
+            // Skip if conditions not met
           }
         }
       }

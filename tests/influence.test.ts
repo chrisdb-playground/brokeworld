@@ -13,32 +13,21 @@ import {
 } from '../src/sim/influence';
 
 describe('HQ Influence Zones and Infrastructure Acquisition', () => {
-  it('starts the sim with gang HQs in each region (Africa, Europe, UK)', () => {
+  it('starts the sim with a main HQ and an HQ in another region (2 HQs per gang)', () => {
     const prng = createPrng(1234);
     const state = createInitialWorld(prng);
 
-    const regions = ['AFRICA', 'EUROPE', 'UK'] as const;
     const gangs = Object.values(state.gangs);
-
     expect(gangs.length).toBe(3);
 
     for (const gang of gangs) {
       expect(gang.hqLocationIds).toBeDefined();
-      expect(gang.hqLocationIds!.length).toBeGreaterThanOrEqual(3);
+      expect(gang.hqLocationIds!.length).toBe(2);
 
-      for (const reg of regions) {
-        const regionalHq = Object.values(state.locations).find(
-          (loc) => loc.gangId === gang.id && loc.kind === 'HQ' && loc.region === reg
-        );
-        expect(regionalHq).toBeDefined();
-        expect(regionalHq!.tileFamily).toBe('logistics-hub');
-        expect(regionalHq!.tileVariant).toBe('mk1');
-
-        if (reg === 'EUROPE') {
-          expect(regionalHq!.isMainHq).toBe(true);
-          expect(gang.mainHqLocationId).toBe(regionalHq!.id);
-        }
-      }
+      const mainHq = state.locations[gang.mainHqLocationId || gang.hqLocationId];
+      expect(mainHq).toBeDefined();
+      expect(mainHq.isMainHq).toBe(true);
+      expect(mainHq.tileFamily).toBe('logistics-hub');
     }
   });
 
@@ -211,7 +200,7 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
     expect(newRecruiter).toBeDefined();
     expect(newRecruiter.kind).toBe('RECRUITER');
     expect(state.locations[newRecruiter.id]).toBeDefined();
-    expect(isolatedGang.cash).toBe(20000 - validCheck.cost);
+    expect(isolatedGang.cash).toBe(20000 - validCheck.cost - 150); // node cost + hood signing fee
     expect(newRecruiter.assignedHoodId).toBeDefined();
     expect(state.hoods[newRecruiter.assignedHoodId!].role).toBe('RECRUITER_MANAGER');
   });
@@ -233,7 +222,7 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
     expect(newHq).toBeDefined();
     expect(state.locations[newHq.id]).toBeDefined();
     expect(gang.hqLocationIds!.length).toBe(initialHqCount + 1);
-    expect(gang.cash).toBe(10000 - hqCheck.cost);
+    expect(gang.cash).toBe(10000 - hqCheck.cost - 150); // HQ cost + HQ Boss signing fee
 
     // Check that point (80, 470) now has strong influence heat
     const heatAtNewHq = getEffectiveInfluenceHeat(state, gang.id, 80, 470);
@@ -265,7 +254,7 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
       },
     ]);
 
-    expect(gang.cash).toBe(startingCash - 4000);
+    expect(gang.cash).toBe(startingCash - 4000 - 150);
     const foundHq = Object.values(state.locations).find((l) => l.name === 'Crimson Forward Command');
     expect(foundHq).toBeDefined();
     expect(foundHq!.kind).toBe('HQ');

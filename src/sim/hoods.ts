@@ -29,8 +29,12 @@ const ROLE_TITLES: Record<HoodRole, string[]> = {
   DEPOT_GUARD: ['Warden', 'Quartermaster', 'Handler', 'Overseer'],
   WORKSHOP_MECHANIC: ['Mechanic', 'Engineer', 'Wrench', 'Greaser'],
   VOYAGE_SKIPPER: ['Skipper', 'Captain', 'Helmsman', 'Pilot'],
+  SCOUT: ['Scout', 'Lookout', 'Pathfinder', 'Tracker', 'Spotter'],
   STANDBY: ['Operative', 'Enforcer', 'Hood', 'Bruiser'],
 };
+
+export const HOOD_HIRING_COST = 150;
+export const HOOD_WAGE_PER_CYCLE = 15;
 
 const SKIN_TONES = ['#fed7aa', '#fef08a', '#cbd5e1', '#fbcfe8', '#bfdbfe', '#bbf7d0'];
 const HAIR_COLORS = ['#0f172a', '#78350f', '#d97706', '#94a3b8', '#b91c1c'];
@@ -97,17 +101,25 @@ export function describeHoodTask(
     return 'Skippering voyage in transit';
   }
 
+  if (assignment.type === 'SCOUT_ZONE') {
+    const loc = state.locations[assignment.targetId];
+    return `Scouting regional terrain around ${loc?.name || 'HQ'} for candidate nodes and routes`;
+  }
+
   if (assignment.type === 'IDLE_HQ') {
     const hq = state.locations[assignment.targetId];
     return `Standing by at ${hq?.name || 'HQ'} ready for dispatch`;
+  }
+
+  if (role === 'SCOUT') {
+    return 'Scouting territory for candidate nodes and cross-border routes';
   }
 
   return 'Standing by for syndicate orders';
 }
 
 /**
- * Hire a new Hood for a gang (free of charge for now as per rule:
- * "for now gangs just hire hoods no money for now")
+ * Hire a new Hood for a gang with a standard signing fee
  */
 export function hireHood(
   state: WorldSnapshot,
@@ -118,6 +130,9 @@ export function hireHood(
   events?: SimEvent[]
 ): HoodState {
   const gang = state.gangs[gangId];
+  if (gang) {
+    gang.cash -= HOOD_HIRING_COST;
+  }
   const gangColor = gang ? gang.color : '#38bdf8';
   const id = `HOOD_${gangId}_${hoodSeq++}`;
   const name = generateHoodName(role, prng);
@@ -145,6 +160,7 @@ export function hireHood(
     const loc = state.locations[assignment.targetId];
     if (loc) {
       loc.assignedHoodId = hood.id;
+      loc.operationalStatus = 'ACTIVE';
     }
   }
 
@@ -153,7 +169,7 @@ export function hireHood(
       id: `EVT_HOOD_${id}`,
       tick: state.tick,
       type: 'HOOD_HIRED',
-      description: `${gang?.name || 'Gang'} employed Hood ${name} (${role.replace('_', ' ')}) to ${taskDesc}.`,
+      description: `${gang?.name || 'Gang'} employed Hood ${name} (${role.replace('_', ' ')}) for $${HOOD_HIRING_COST} to ${taskDesc}.`,
       importance: 'LOW',
       gangId,
     });
@@ -205,6 +221,32 @@ export function releaseHoodFromVoyage(
 }
 
 /**
+ * Process periodic wage deductions for all employed hoods
+ */
+export function processPayroll(state: WorldSnapshot, events?: SimEvent[]): void {
+  if (state.tick % 60 !== 0) return;
+
+  for (const gang of Object.values(state.gangs)) {
+    if (gang.status !== 'ACTIVE') continue;
+    const gangHoods = Object.values(state.hoods).filter((h) => h.gangId === gang.id);
+    const wageBill = gangHoods.length * HOOD_WAGE_PER_CYCLE;
+    gang.wageBillTotal = wageBill;
+    gang.cash -= wageBill;
+
+    if (events && gangHoods.length > 0) {
+      events.push({
+        id: `EVT_PAYROLL_${gang.id}_${state.tick}`,
+        tick: state.tick,
+        type: 'PAYROLL_PAID',
+        description: `${gang.name} paid $${wageBill} in payroll to ${gangHoods.length} Hoods ($${HOOD_WAGE_PER_CYCLE}/hood).`,
+        importance: 'LOW',
+        gangId: gang.id,
+      });
+    }
+  }
+}
+
+/**
  * Ensure all nodes of a gang have assigned hoods to manage them.
  * Rule: "a gang must employee hood to do anything- run voyages, manage nodes, recruiters, workshops, whatever."
  */
@@ -228,6 +270,7 @@ export function ensureGangNodesStaffed(
       );
       if (existingHood) {
         hq.assignedHoodId = existingHood.id;
+        hq.operationalStatus = 'ACTIVE';
       } else {
         hireHood(state, gang.id, 'HQ_BOSS', { type: 'MANAGE_NODE', targetId: hq.id, role: 'HQ_BOSS' }, prng, events);
       }
@@ -243,6 +286,7 @@ export function ensureGangNodesStaffed(
       );
       if (existingHood) {
         ws.assignedHoodId = existingHood.id;
+        ws.operationalStatus = 'ACTIVE';
       } else {
         hireHood(state, gang.id, 'WORKSHOP_MECHANIC', { type: 'MANAGE_NODE', targetId: ws.id, role: 'WORKSHOP_MECHANIC' }, prng, events);
       }
@@ -258,6 +302,7 @@ export function ensureGangNodesStaffed(
       );
       if (existingHood) {
         rec.assignedHoodId = existingHood.id;
+        rec.operationalStatus = 'ACTIVE';
       } else {
         hireHood(state, gang.id, 'RECRUITER_MANAGER', { type: 'MANAGE_NODE', targetId: rec.id, role: 'RECRUITER_MANAGER' }, prng, events);
       }
@@ -273,8 +318,35 @@ export function ensureGangNodesStaffed(
       );
       if (existingHood) {
         depot.assignedHoodId = existingHood.id;
+        depot.operationalStatus = 'ACTIVE';
       } else {
         hireHood(state, gang.id, 'DEPOT_GUARD', { type: 'MANAGE_NODE', targetId: depot.id, role: 'DEPOT_GUARD' }, prng, events);
+      }
+    }
+  }
+
+  // 5. Staff Cross-Border Routes
+  for (const route of Object.values(state.routes)) {
+    if (route.gangId === gang.id && route.status === 'ACTIVE' && route.isCrossBorder) {
+      if (!route.assignedSkipperHoodId || !state.hoods[route.assignedSkipperHoodId]) {
+        const existingSkipper = Object.values(state.hoods).find(
+          (h) => h.gangId === gang.id && (h.role === 'VOYAGE_SKIPPER' || h.role === 'STANDBY') && h.assignment.type === 'IDLE_HQ'
+        );
+        if (existingSkipper) {
+          route.assignedSkipperHoodId = existingSkipper.id;
+          route.operationalStatus = 'ACTIVE';
+        } else {
+          const newSkipper = hireHood(
+            state,
+            gang.id,
+            'VOYAGE_SKIPPER',
+            { type: 'IDLE_HQ', targetId: gang.mainHqLocationId || gang.hqLocationId, role: 'VOYAGE_SKIPPER' },
+            prng,
+            events
+          );
+          route.assignedSkipperHoodId = newSkipper.id;
+          route.operationalStatus = 'ACTIVE';
+        }
       }
     }
   }

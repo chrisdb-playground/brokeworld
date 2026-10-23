@@ -315,6 +315,45 @@ export class HudOverlay {
           return;
         }
 
+        const hireScoutBtn = target.closest<HTMLButtonElement>('.btn-hire-scout');
+        if (hireScoutBtn) {
+          e.stopPropagation();
+          const gId = hireScoutBtn.getAttribute('data-gang-id');
+          if (gId) {
+            this.port.dispatch({ type: 'HIRE_SCOUT', payload: { gangId: gId } });
+            setTimeout(() => this.renderInspector(), 50);
+          }
+          return;
+        }
+
+        const claimBtn = target.closest<HTMLButtonElement>('.btn-claim-candidate');
+        if (claimBtn) {
+          e.stopPropagation();
+          const gId = claimBtn.getAttribute('data-gang-id');
+          const candId = claimBtn.getAttribute('data-candidate-id');
+          if (gId && candId) {
+            this.port.dispatch({ type: 'CLAIM_CANDIDATE_NODE', payload: { gangId: gId, candidateId: candId } });
+            setTimeout(() => this.renderInspector(), 50);
+          }
+          return;
+        }
+
+        const charterBtn = target.closest<HTMLButtonElement>('.btn-charter-route');
+        if (charterBtn) {
+          e.stopPropagation();
+          const gId = charterBtn.getAttribute('data-gang-id');
+          const srcId = charterBtn.getAttribute('data-src-id');
+          const tgtId = charterBtn.getAttribute('data-tgt-id');
+          if (gId && srcId && tgtId) {
+            this.port.dispatch({
+              type: 'PURCHASE_BORDER_ROUTE',
+              payload: { gangId: gId, sourceRecruiterId: srcId, targetDepotId: tgtId },
+            });
+            setTimeout(() => this.renderInspector(), 50);
+          }
+          return;
+        }
+
         const chumRow = target.closest<HTMLElement>('.chum-row-item');
         if (chumRow) {
           e.stopPropagation();
@@ -493,11 +532,24 @@ export class HudOverlay {
       return;
     }
 
-    const currentKey = `${this.selectedEntityType}:${this.selectedEntityId}`;
+    let stateKey = '';
+    if (this.selectedEntityType === 'GANG') {
+      const g = this.currentSnapshot.gangs[this.selectedEntityId];
+      if (g) {
+        stateKey = `:${g.discoveredNodeIds?.length || 0}:${g.discoveredRouteIds?.length || 0}:${Object.values(this.currentSnapshot.hoods || {}).filter(h => h.gangId === g.id).length}`;
+      }
+    } else if (this.selectedEntityType === 'LOCATION') {
+      const l = this.currentSnapshot.locations[this.selectedEntityId];
+      if (l) {
+        stateKey = `:${l.operationalStatus}:${l.gangId}:${l.assignedHoodId || 'none'}`;
+      }
+    }
+
+    const currentKey = `${this.selectedEntityType}:${this.selectedEntityId}${stateKey}`;
 
     card.classList.remove('collapsed');
 
-    // Only rebuild DOM template structure when the selected entity changes
+    // Only rebuild DOM template structure when the selected entity or operational state changes
     if (this.lastInspectorKey !== currentKey) {
       this.lastInspectorKey = currentKey;
       this.buildInspectorStructure(title, content);
@@ -573,6 +625,25 @@ export class HudOverlay {
       const recruiters = (gang.recruiterLocationIds || []).map((id) => this.currentSnapshot.locations[id]?.name).filter(Boolean);
       const depots = (gang.depotLocationIds || []).map((id) => this.currentSnapshot.locations[id]?.name).filter(Boolean);
       const gangHoods = Object.values(this.currentSnapshot.hoods || {}).filter((h) => h.gangId === gang.id);
+      const wageBill = gang.wageBillTotal ?? (gangHoods.length * 15);
+
+      const candidateNodes = (gang.discoveredNodeIds || [])
+        .map((id) => this.currentSnapshot.locations[id])
+        .filter((l) => l && (l.operationalStatus === 'DISCOVERED_CANDIDATE' || l.gangId === 'NEUTRAL' || !l.gangId));
+
+      const discoveredCorridors = (gang.discoveredRouteIds || [])
+        .map((routeKey) => {
+          const parts = routeKey.split('__');
+          const src = this.currentSnapshot.locations[parts[1]];
+          const tgt = this.currentSnapshot.locations[parts[2]];
+          return { key: routeKey, src, tgt };
+        })
+        .filter((item) => item.src && item.tgt);
+      const uncharteredCorridors = discoveredCorridors.filter((item) => {
+        return !Object.values(this.currentSnapshot.routes).some(
+          (r) => r.gangId === gang.id && r.sourceId === item.src.id && r.targetId === item.tgt.id
+        );
+      });
 
       content.innerHTML = `
         <div class="gang-header-banner" style="border-left: 4px solid ${gang.color}">
@@ -591,11 +662,51 @@ export class HudOverlay {
           <div class="insp-row"><span class="lbl">RECRUITERS</span><span class="val" id="insp-gang-rec-list">${recruiters.join(', ') || 'None'}</span></div>
           <div class="insp-row"><span class="lbl">DEPOTS</span><span class="val" id="insp-gang-dep-list">${depots.join(', ') || 'None'}</span></div>
           <div class="insp-row"><span class="lbl">TREASURY</span><span class="val" id="insp-gang-cash">$${gang.cash}</span></div>
+          <div class="insp-row"><span class="lbl">PAYROLL WAGES</span><span class="val text-amber" id="insp-gang-payroll">$${wageBill} / cycle (60 ticks)</span></div>
           <div class="insp-row"><span class="lbl">REPUTATION</span><span class="val" id="insp-gang-rep">${gang.reputation} / 100</span></div>
           <div class="insp-row"><span class="lbl">TOTAL RECRUITS</span><span class="val" id="insp-gang-recruits">${gang.stats.recruitsTotal} Chums</span></div>
           <div class="insp-row"><span class="lbl">SUCCESSFUL VOYAGES</span><span class="val text-green" id="insp-gang-succ">${gang.stats.voyagesSuccessful}</span></div>
           <div class="insp-row"><span class="lbl">DISRUPTED VOYAGES</span><span class="val text-red" id="insp-gang-disr">${gang.stats.voyagesDisrupted}</span></div>
           <div class="insp-row"><span class="lbl">ACTIVE ROUTES</span><span class="val" id="insp-gang-routes">${routes.filter((r) => r.status === 'ACTIVE').length}</span></div>
+        </div>
+
+        <div class="insp-subhead">SCOUT DISCOVERIES: CANDIDATE SITES (${candidateNodes.length})</div>
+        <div class="discovery-list" id="insp-gang-candidate-nodes">
+          ${candidateNodes.map((c) => {
+            const cost = c.candidateCost || 1500;
+            const canAfford = gang.cash >= cost;
+            return `
+              <div class="discovery-item">
+                <div class="discovery-info">
+                  <div class="discovery-title">📍 ${c.name} (${c.region})</div>
+                  <div class="discovery-sub">${c.kind} • Acquisition: $${cost}</div>
+                </div>
+                <button class="btn-claim-candidate" data-gang-id="${gang.id}" data-candidate-id="${c.id}" ${canAfford ? '' : 'disabled'}>
+                  Claim ($${cost})
+                </button>
+              </div>
+            `;
+          }).join('')}
+          ${candidateNodes.length === 0 ? '<div class="discovery-empty">Scouts exploring... No unowned candidate sites located yet.</div>' : ''}
+        </div>
+
+        <div class="insp-subhead">SCOUT DISCOVERIES: SEA CORRIDORS (${uncharteredCorridors.length})</div>
+        <div class="discovery-list" id="insp-gang-candidate-routes">
+          ${uncharteredCorridors.map((c) => {
+            const canAfford = gang.cash >= 1200;
+            return `
+              <div class="discovery-item">
+                <div class="discovery-info">
+                  <div class="discovery-title">🌊 ${c.src.name} ➔ ${c.tgt.name}</div>
+                  <div class="discovery-sub">Cross-Border Sea Route • Charter: $1,200</div>
+                </div>
+                <button class="btn-charter-route" data-gang-id="${gang.id}" data-src-id="${c.src.id}" data-tgt-id="${c.tgt.id}" ${canAfford ? '' : 'disabled'}>
+                  Charter ($1,200)
+                </button>
+              </div>
+            `;
+          }).join('')}
+          ${uncharteredCorridors.length === 0 ? '<div class="discovery-empty">Scouts exploring... No uncharted sea corridors discovered yet.</div>' : ''}
         </div>
 
         <div class="insp-subhead">PURCHASE INFRASTRUCTURE</div>
@@ -618,7 +729,12 @@ export class HudOverlay {
         </div>
 
         <div class="insp-subhead">EMPLOYED CHUM HOODS (${gangHoods.length})</div>
-        <div class="hoods-scroll-list" id="insp-gang-hoods">
+        <div class="hood-hire-bar">
+          <button class="btn-hire-scout" data-gang-id="${gang.id}" ${gang.cash < 150 ? 'disabled' : ''}>
+            🕵️ Hire Scout Hood <b>$150</b>
+          </button>
+        </div>
+        <div class="hoods-scroll-list" id="insp-gang-hoods" style="margin-top: 8px;">
           ${gangHoods.map((h) => `
             <div class="hood-card">
               <div class="hood-card-header">
@@ -651,6 +767,9 @@ export class HudOverlay {
       if (!loc) return;
 
       title.textContent = `LOCATION DOSSIER`;
+      const isCandidate = loc.operationalStatus === 'DISCOVERED_CANDIDATE' || loc.gangId === 'NEUTRAL' || !loc.gangId;
+      const isUnstaffed = !isCandidate && (loc.operationalStatus === 'UNSTAFFED' || !loc.assignedHoodId);
+
       const chumsPresent = Object.values(this.currentSnapshot.chumigrants).filter(
         (c) => c.originId === loc.id && (c.status === 'WAITING' || c.status === 'RECRUITED')
       );
@@ -663,15 +782,23 @@ export class HudOverlay {
       const incomingRoutes = Object.values(this.currentSnapshot.routes).filter(
         (r) => r.targetId === loc.id && r.status === 'ACTIVE'
       );
-      const gang = loc.gangId ? this.currentSnapshot.gangs[loc.gangId] : null;
-      const gangHoods = loc.gangId
-        ? Object.values(this.currentSnapshot.hoods || {}).filter((h) => h.gangId === loc.gangId)
+      const gang = (loc.gangId && loc.gangId !== 'NEUTRAL') ? this.currentSnapshot.gangs[loc.gangId] : null;
+      const gangHoods = gang
+        ? Object.values(this.currentSnapshot.hoods || {}).filter((h) => h.gangId === gang.id)
         : [];
       const assignedHood = loc.assignedHoodId ? this.currentSnapshot.hoods[loc.assignedHoodId] : null;
 
-      const effectiveHeat = getEffectiveInfluenceHeat(this.currentSnapshot, loc.gangId, loc.x, loc.y);
+      const effectiveHeat = gang ? getEffectiveInfluenceHeat(this.currentSnapshot, gang.id, loc.x, loc.y) : 0;
       const heatPct = Math.round(effectiveHeat * 100);
       const multiplier = getNodeHeatMultiplier(effectiveHeat);
+
+      // Discovering gangs for candidates
+      const candidateCost = loc.candidateCost || 1500;
+      const discoveringGangs = isCandidate
+        ? Object.values(this.currentSnapshot.gangs).filter(
+            (g) => g.status === 'ACTIVE' && (g.discoveredNodeIds || []).includes(loc.id)
+          )
+        : [];
 
       content.innerHTML = `
         <div class="location-banner">
@@ -679,12 +806,30 @@ export class HudOverlay {
           <span class="region-pill">Region ${loc.region} • ${loc.kind} (${loc.tileFamily})</span>
         </div>
 
+        ${isCandidate ? `
+          <div class="candidate-banner">
+            <div class="candidate-title">🔍 UNCLAIMED CANDIDATE SITE</div>
+            <div class="candidate-sub">Scouted node ready to be claimed and staffed by a syndicate.</div>
+          </div>
+        ` : ''}
+
+        ${isUnstaffed ? `
+          <div class="unstaffed-alert">
+            <span class="alert-icon">⚠️</span>
+            <div class="alert-text">
+              <b>UNSTAFFED ASSET</b><br>
+              Operations halted. Requires an assigned Hood to manage throughput.
+            </div>
+          </div>
+        ` : ''}
+
         <div class="insp-grid">
           ${gang ? `<div class="insp-row"><span class="lbl">OWNING GANG</span><span class="val" style="color: ${gang.color}">${gang.emblem} ${gang.name}</span></div>` : ''}
+          ${isCandidate ? `<div class="insp-row"><span class="lbl">ACQUISITION COST</span><span class="val text-green">$${candidateCost}</span></div>` : ''}
           <div class="insp-row"><span class="lbl">INFLUENCE HEAT</span><span class="val highlight" id="insp-loc-heat">${heatPct}% (${multiplier}x Stats Multiplier)</span></div>
           ${loc.kind === 'HQ' ? `
             <div class="insp-row"><span class="lbl">HQ STATUS</span><span class="val highlight">${loc.isMainHq ? '⭐ Primary Gang HQ (Holds Reserves)' : 'Regional Command Post'}</span></div>
-            <div class="insp-row"><span class="lbl">INFLUENCE ZONE</span><span class="val highlight">260px Radius (Border-Clipped)</span></div>
+            <div class="insp-row"><span class="lbl">INFLUENCE ZONE</span><span class="val highlight">${Math.round(loc.influenceRadius || 220)}px Radius (Expanding)</span></div>
           ` : ''}
           ${assignedHood ? `
             <div class="insp-row"><span class="lbl">MANAGING HOOD</span><span class="val highlight">${assignedHood.name}</span></div>
@@ -704,6 +849,21 @@ export class HudOverlay {
             <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val" id="insp-loc-in">${incomingRoutes.length}</span></div>
           ` : ''}
         </div>
+
+        ${isCandidate ? `
+          <div class="insp-subhead">CLAIM CANDIDATE SITE ($${candidateCost})</div>
+          <div class="candidate-claim-box">
+            ${discoveringGangs.map((g) => {
+              const canAfford = g.cash >= candidateCost;
+              return `
+                <button class="btn-claim-candidate" data-gang-id="${g.id}" data-candidate-id="${loc.id}" ${canAfford ? '' : 'disabled'} style="border-left: 3px solid ${g.color};">
+                  Claim for <b>${g.name}</b> ($${candidateCost})
+                </button>
+              `;
+            }).join('')}
+            ${discoveringGangs.length === 0 ? '<div class="candidate-notice">Not yet scouted by any active gang syndicate.</div>' : ''}
+          </div>
+        ` : ''}
 
         ${loc.kind === 'HQ' ? `
           <div class="insp-subhead">EMPLOYED CHUM HOODS (${gangHoods.length})</div>
@@ -892,6 +1052,10 @@ export class HudOverlay {
         cashEl.className = gang.cash < 0 ? 'val text-red' : 'val text-green';
         cashEl.textContent = `$${gang.cash}`;
       }
+      const wageBill = gang.wageBillTotal ?? (gangHoods.length * 15);
+      const payrollEl = content.querySelector('#insp-gang-payroll');
+      if (payrollEl) payrollEl.textContent = `$${wageBill} / cycle (60 ticks)`;
+
       const repEl = content.querySelector('#insp-gang-rep');
       if (repEl) repEl.textContent = `${gang.reputation} / 100`;
       const recEl = content.querySelector('#insp-gang-recruits');
@@ -910,6 +1074,22 @@ export class HudOverlay {
         }
       }
 
+      const hireScoutBtn = content.querySelector<HTMLButtonElement>('.btn-hire-scout');
+      if (hireScoutBtn) {
+        hireScoutBtn.disabled = gang.cash < 150;
+      }
+
+      content.querySelectorAll<HTMLButtonElement>('.btn-claim-candidate').forEach((btn) => {
+        const candId = btn.getAttribute('data-candidate-id');
+        const cLoc = candId ? this.currentSnapshot.locations[candId] : null;
+        const cost = cLoc?.candidateCost || 1500;
+        btn.disabled = gang.cash < cost;
+      });
+
+      content.querySelectorAll<HTMLButtonElement>('.btn-charter-route').forEach((btn) => {
+        btn.disabled = gang.cash < 1200;
+      });
+
       content.querySelectorAll<HTMLButtonElement>('.btn-build-action').forEach((btn) => {
         const cost = parseInt(btn.getAttribute('data-cost') || '0', 10);
         if (gang.cash < cost) {
@@ -924,7 +1104,9 @@ export class HudOverlay {
       const loc = this.currentSnapshot.locations[this.selectedEntityId!];
       if (!loc) return;
 
-      const effectiveHeat = getEffectiveInfluenceHeat(this.currentSnapshot, loc.gangId, loc.x, loc.y);
+      const effectiveHeat = (loc.gangId && loc.gangId !== 'NEUTRAL')
+        ? getEffectiveInfluenceHeat(this.currentSnapshot, loc.gangId, loc.x, loc.y)
+        : 0;
       const heatPct = Math.round(effectiveHeat * 100);
       const multiplier = getNodeHeatMultiplier(effectiveHeat);
 

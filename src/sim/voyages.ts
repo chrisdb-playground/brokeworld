@@ -100,6 +100,17 @@ export function processVoyages(
     const tgtLoc = state.locations[route.targetId];
     if (!srcLoc || !tgtLoc) continue;
 
+    // Node staffing check: both nodes must have an assigned active Hood
+    if (!srcLoc.assignedHoodId || !state.hoods[srcLoc.assignedHoodId]) continue;
+    if (!tgtLoc.assignedHoodId || !state.hoods[tgtLoc.assignedHoodId]) continue;
+
+    // Cross-border route staffing check: must have an assigned skipper
+    if (route.isCrossBorder) {
+      if (!route.assignedSkipperHoodId || !state.hoods[route.assignedSkipperHoodId]) {
+        continue;
+      }
+    }
+
     let manifestPassengers: typeof state.chumigrants[string][] = [];
 
     if (srcLoc.kind === 'RECRUITER' && tgtLoc.kind === 'DEPOT') {
@@ -258,12 +269,27 @@ function resolveVoyage(
   if (!isFailed) {
     // SUCCESS - arrived at target Depot or Workshop!
     voyage.status = 'SUCCESS';
+    const payoutPerPassenger = isWorkshop ? 120 : 380;
+    const totalPayout = voyage.passengerIds.length * payoutPerPassenger;
+
     if (gang) {
+      gang.cash += totalPayout;
+      gang.stats.revenueTotal += totalPayout;
       gang.stats.voyagesSuccessful++;
       gang.reputation = Math.min(100, gang.reputation + 1);
+
+      // Successful voyage expands HQ influence in source and target regions!
+      for (const loc of Object.values(state.locations)) {
+        if (loc.gangId === gang.id && loc.kind === 'HQ') {
+          if (loc.region === srcLoc?.region || loc.region === targetLoc?.region) {
+            loc.influenceRadius = Math.min(320, (loc.influenceRadius || 140) + 5);
+          }
+        }
+      }
     }
     if (route) {
       route.totalPassengers += voyage.passengerIds.length;
+      route.revenue += totalPayout;
     }
     state.stats.totalVoyagesSuccess++;
 

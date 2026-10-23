@@ -538,7 +538,7 @@ export class ChumScene extends Phaser.Scene {
 
   private renderInfluenceHeatmap(snapshot: WorldSnapshot) {
     const hqs = Object.values(snapshot.locations).filter((l) => l.kind === 'HQ');
-    const hqSig = `${this.isInfluenceZoneVisible}|${Array.from(this.selectedGangIds).sort().join(',')}|${hqs.map((h) => `${h.id}:${h.x}:${h.y}:${h.gangId}`).sort().join(';')}`;
+    const hqSig = `${this.isInfluenceZoneVisible}|${Array.from(this.selectedGangIds).sort().join(',')}|${hqs.map((h) => `${h.id}:${h.x}:${h.y}:${h.gangId}:${Math.round(h.influenceRadius || 220)}`).sort().join(';')}`;
 
     if (hqSig === this.lastHqSignature) {
       return;
@@ -560,7 +560,6 @@ export class ChumScene extends Phaser.Scene {
     };
 
     const activeGangs = Object.values(snapshot.gangs).filter((g) => g.status === 'ACTIVE');
-    const radius = BASE_HQ_INFLUENCE_RADIUS;
 
     for (const gang of activeGangs) {
       const isSelected = this.selectedGangIds.has(gang.id);
@@ -575,6 +574,8 @@ export class ChumScene extends Phaser.Scene {
       for (const hq of hqs) {
         const gfx = gfxByRegion[hq.region];
         if (!gfx) continue;
+
+        const radius = hq.influenceRadius || BASE_HQ_INFLUENCE_RADIUS;
 
         // "darker color - stronger influence - it dissipates with distance from hq"
         // 12 concentric steps creating smooth radial heat decay
@@ -596,7 +597,7 @@ export class ChumScene extends Phaser.Scene {
         gfx.lineStyle(1.5, 0xffffff, 0.45 * alphaMultiplier);
         gfx.strokeCircle(hq.x, hq.y, 22);
 
-        // Subtle radar contour rings
+        // Dynamic radar contour rings
         gfx.lineStyle(1.5, gang.colorNum, 0.65 * alphaMultiplier);
         gfx.strokeCircle(hq.x, hq.y, radius);
 
@@ -704,8 +705,8 @@ export class ChumScene extends Phaser.Scene {
       }
 
       // Visibility Rule:
-      // Show nodes owned by ANY currently selected gang
-      const isVisible = this.selectedGangIds.has(loc.gangId);
+      // Show nodes owned by ANY currently selected gang, or unowned candidate nodes
+      const isVisible = loc.gangId === 'NEUTRAL' || this.selectedGangIds.has(loc.gangId);
       container.setVisible(isVisible);
 
       if (isVisible) {
@@ -859,18 +860,36 @@ export class ChumScene extends Phaser.Scene {
     baseGfx.fillStyle(0x0f172a, 0.95);
     baseGfx.fillRoundedRect(-36, -36, 72, 72, 8);
 
+    const isCandidate = loc.gangId === 'NEUTRAL';
+    const isUnstaffed = !isCandidate && !loc.assignedHoodId;
+
     if (isSelected) {
       // High-contrast gold halo for selected node
       baseGfx.lineStyle(4, 0xfacc15, 1.0);
       baseGfx.strokeRoundedRect(-41, -41, 82, 82, 10);
       baseGfx.lineStyle(2, 0xffffff, 1.0);
       baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
+    } else if (isCandidate) {
+      baseGfx.lineStyle(2, 0x64748b, 0.65);
+      baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
     } else {
       baseGfx.lineStyle(2, strokeColor, 0.9);
       baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
     }
 
-    if (loc.kind === 'HQ' && gang) {
+    if (isCandidate) {
+      countText.setText(`$${loc.candidateCost || 1800}`);
+      badgeGfx.fillStyle(0x0f172a, 0.9);
+      badgeGfx.fillRoundedRect(-34, -54, 68, 18, 4);
+      badgeGfx.lineStyle(1.5, 0x64748b, 0.85);
+      badgeGfx.strokeRoundedRect(-34, -54, 68, 18, 4);
+    } else if (isUnstaffed) {
+      countText.setText('⚠️ UNSTAFFED');
+      badgeGfx.fillStyle(0x451a03, 0.9);
+      badgeGfx.fillRoundedRect(-44, -54, 88, 18, 4);
+      badgeGfx.lineStyle(1.5, 0xf59e0b, 0.9);
+      badgeGfx.strokeRoundedRect(-44, -54, 88, 18, 4);
+    } else if (loc.kind === 'HQ' && gang) {
       badgeGfx.fillStyle(gang.colorNum, 1);
       badgeGfx.fillCircle(28, -28, 12);
       badgeGfx.lineStyle(1.5, 0xffffff, 0.9);

@@ -15,6 +15,8 @@ export const REGION_BOUNDS: Record<RegionId, { yMin: number; yMax: number }> = {
 };
 
 export const BASE_HQ_INFLUENCE_RADIUS = 260; // Base influence radius in px
+export const INITIAL_HQ_INFLUENCE_RADIUS = 220; // Starting influence radius for fresh HQs
+export const MAX_HQ_INFLUENCE_RADIUS = 350; // Maximum capped influence radius
 export const RIVAL_RESTRICTION_FACTOR = 0.65; // Overlap damping: allows slight overlap buffer between rival HQs
 
 export interface InfluenceCheckResult {
@@ -82,7 +84,8 @@ export function getRawGangInfluenceInRegion(
   let maxRawHeat = 0;
   for (const loc of Object.values(state.locations)) {
     if (loc.gangId === gangId && loc.kind === 'HQ' && loc.region === region) {
-      const h = getRawHqHeat(loc.x, loc.y, x, y, radius);
+      const hqRadius = loc.influenceRadius || radius;
+      const h = getRawHqHeat(loc.x, loc.y, x, y, hqRadius);
       if (h > maxRawHeat) {
         maxRawHeat = h;
       }
@@ -90,6 +93,26 @@ export function getRawGangInfluenceInRegion(
   }
 
   return maxRawHeat;
+}
+
+/**
+ * Slowly ticks up the influence radius of active staffed HQs over time
+ */
+export function tickInfluenceGrowth(state: WorldSnapshot): void {
+  // Slowly tick up HQ influence radius every 20 ticks
+  if (state.tick % 20 !== 0) return;
+
+  for (const loc of Object.values(state.locations)) {
+    if (loc.kind === 'HQ' && loc.gangId !== 'NEUTRAL') {
+      // Must be staffed to project expanding influence
+      if (loc.assignedHoodId && state.hoods[loc.assignedHoodId]) {
+        const curRadius = loc.influenceRadius || INITIAL_HQ_INFLUENCE_RADIUS;
+        if (curRadius < MAX_HQ_INFLUENCE_RADIUS) {
+          loc.influenceRadius = Math.min(MAX_HQ_INFLUENCE_RADIUS, curRadius + 1);
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -515,3 +538,199 @@ export function executePurchaseNode(
 
   return loc;
 }
+
+/**
+ * Claim an unowned candidate node that has been scouted
+ */
+export function executeClaimCandidateNode(
+  state: WorldSnapshot,
+  gangId: string,
+  candidateId: string,
+  prng: SeededPrng,
+  events?: SimEvent[]
+): LocationDef {
+  const loc = state.locations[candidateId];
+  if (!loc) throw new Error(`Candidate node ${candidateId} not found`);
+  const gang = state.gangs[gangId];
+  if (!gang) throw new Error(`Gang ${gangId} not found`);
+
+  const cost = loc.candidateCost || (loc.kind === 'HQ' ? 3500 : (loc.kind === 'WORKSHOP' ? 2500 : (loc.kind === 'DEPOT' ? 1500 : 1800)));
+  if (gang.cash < cost) throw new Error(`Insufficient funds: need $${cost}, has $${gang.cash}`);
+
+  gang.cash -= cost;
+  loc.gangId = gangId;
+  loc.operationalStatus = 'ACTIVE';
+
+  if (loc.kind === 'HQ') {
+    if (!gang.hqLocationIds) gang.hqLocationIds = gang.hqLocationId ? [gang.hqLocationId] : [];
+    if (!gang.hqLocationIds.includes(loc.id)) gang.hqLocationIds.push(loc.id);
+    loc.influenceRadius = INITIAL_HQ_INFLUENCE_RADIUS;
+    hireHood(state, gangId, 'HQ_BOSS', { type: 'MANAGE_NODE', targetId: loc.id, role: 'HQ_BOSS' }, prng, events);
+  } else if (loc.kind === 'RECRUITER') {
+    if (!gang.recruiterLocationIds) gang.recruiterLocationIds = [];
+    if (!gang.recruiterLocationIds.includes(loc.id)) gang.recruiterLocationIds.push(loc.id);
+    hireHood(state, gangId, 'RECRUITER_MANAGER', { type: 'MANAGE_NODE', targetId: loc.id, role: 'RECRUITER_MANAGER' }, prng, events);
+  } else if (loc.kind === 'DEPOT') {
+    if (!gang.depotLocationIds) gang.depotLocationIds = [];
+    if (!gang.depotLocationIds.includes(loc.id)) gang.depotLocationIds.push(loc.id);
+    hireHood(state, gangId, 'DEPOT_GUARD', { type: 'MANAGE_NODE', targetId: loc.id, role: 'DEPOT_GUARD' }, prng, events);
+  } else if (loc.kind === 'WORKSHOP') {
+    gang.workshopLocationId = loc.id;
+    hireHood(state, gangId, 'WORKSHOP_MECHANIC', { type: 'MANAGE_NODE', targetId: loc.id, role: 'WORKSHOP_MECHANIC' }, prng, events);
+  }
+
+  // Remove from discovered lists
+  if (gang.discoveredNodeIds) {
+    gang.discoveredNodeIds = gang.discoveredNodeIds.filter((id) => id !== loc.id);
+  }
+
+  const opId = `OP_${loc.id}`;
+  state.operations[opId] = {
+    id: opId,
+    gangId,
+    locationId: loc.id,
+    type: loc.kind === 'WORKSHOP' ? 'WORKSHOP' : (loc.kind === 'RECRUITER' ? 'RECRUITER' : 'HQ'),
+    status: 'ACTIVE',
+    openedTick: state.tick,
+  };
+
+  if (events) {
+    events.push({
+      id: `EVT_PURCHASE_NODE_${loc.id}_${state.tick}`,
+      tick: state.tick,
+      type: 'NODE_PURCHASED',
+      description: `${gang.name} acquired candidate node ${loc.name} (${loc.region}) for $${cost}.`,
+      importance: 'MEDIUM',
+      gangId,
+      locationId: loc.id,
+    });
+  }
+
+  return loc;
+}
+
+let borderRouteSeq = 500;
+
+export function canPurchaseBorderRoute(
+  state: WorldSnapshot,
+  gangId: string,
+  sourceRecruiterId: string,
+  targetDepotId: string
+): InfluenceCheckResult {
+  const cost = 1200;
+  const gang = state.gangs[gangId];
+  if (!gang || gang.status !== 'ACTIVE') {
+    return { allowed: false, cost, reason: 'Gang is not active', heat: 0 };
+  }
+  if (gang.cash < cost) {
+    return { allowed: false, cost, reason: `Insufficient cash ($${gang.cash} < $${cost})`, heat: 0 };
+  }
+
+  const src = state.locations[sourceRecruiterId];
+  const tgt = state.locations[targetDepotId];
+  if (!src || !tgt) {
+    return { allowed: false, cost, reason: 'Source or target node not found', heat: 0 };
+  }
+  if (src.gangId !== gangId || tgt.gangId !== gangId) {
+    return { allowed: false, cost, reason: 'Both nodes must be owned by the gang', heat: 0 };
+  }
+  if (src.region === tgt.region) {
+    return { allowed: false, cost: 0, reason: 'Intra-region routes are automatic and free', heat: 1 };
+  }
+
+  const existing = Object.values(state.routes).find(
+    (r) => r.sourceId === src.id && r.targetId === tgt.id && r.gangId === gangId && r.status === 'ACTIVE'
+  );
+  if (existing) {
+    return { allowed: false, cost, reason: 'Route already active', heat: 1 };
+  }
+
+  return { allowed: true, cost, heat: 1.0 };
+}
+
+export function executePurchaseBorderRoute(
+  state: WorldSnapshot,
+  gangId: string,
+  sourceRecruiterId: string,
+  targetDepotId: string,
+  prng: SeededPrng,
+  events?: SimEvent[]
+): import('./types').RouteServiceState {
+  const check = canPurchaseBorderRoute(state, gangId, sourceRecruiterId, targetDepotId);
+  if (!check.allowed) {
+    throw new Error(`Cannot purchase border route: ${check.reason}`);
+  }
+
+  const gang = state.gangs[gangId];
+  gang.cash -= check.cost;
+
+  const src = state.locations[sourceRecruiterId];
+  const tgt = state.locations[targetDepotId];
+  const connId = `CONN_${src.id}_${tgt.id}`;
+  const routeId = `ROUTE_${gang.id}_${borderRouteSeq++}`;
+
+  if (!state.connections[connId]) {
+    const dx = tgt.x - src.x;
+    const dy = tgt.y - src.y;
+    state.connections[connId] = {
+      id: connId,
+      sourceId: src.id,
+      targetId: tgt.id,
+      isCrossBorder: true,
+      distance: Math.max(100, Math.round(Math.hypot(dx, dy))),
+      mode: 'SEA',
+    };
+  }
+
+  // Hire and assign a dedicated Voyage Skipper for this border route
+  const skipper = hireHood(
+    state,
+    gangId,
+    'VOYAGE_SKIPPER',
+    { type: 'IDLE_HQ', targetId: gang.mainHqLocationId || gang.hqLocationId, role: 'VOYAGE_SKIPPER' },
+    prng,
+    events
+  );
+
+  const route: import('./types').RouteServiceState = {
+    id: routeId,
+    gangId,
+    connectionId: connId,
+    sourceId: src.id,
+    targetId: tgt.id,
+    mode: 'BOAT',
+    isCrossBorder: true,
+    assignedSkipperHoodId: skipper.id,
+    operationalStatus: 'ACTIVE',
+    capacity: 4,
+    price: 320,
+    durationTicks: 65,
+    reliability: 0.98,
+    status: 'ACTIVE',
+    totalPassengers: 0,
+    revenue: 0,
+    activeVoyageCount: 0,
+  };
+
+  state.routes[routeId] = route;
+  state.stats.totalActiveRoutes++;
+
+  // Remove from discoveredRouteIds
+  if (gang.discoveredRouteIds) {
+    gang.discoveredRouteIds = gang.discoveredRouteIds.filter((k) => k !== connId);
+  }
+
+  if (events) {
+    events.push({
+      id: `EVT_PURCHASE_ROUTE_${routeId}_${state.tick}`,
+      tick: state.tick,
+      type: 'ROUTE_PURCHASED',
+      description: `${gang.name} chartered cross-border smuggling route from ${src.name} to ${tgt.name} ($${check.cost}, Skipper: ${skipper.name}).`,
+      importance: 'HIGH',
+      gangId,
+    });
+  }
+
+  return route;
+}
+

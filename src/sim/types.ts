@@ -13,9 +13,12 @@ export interface LocationDef {
   tileFamily: 'crusher' | 'pressure-tank' | 'logistics-hub' | 'industrial-press' | string;
   tileVariant: string;
   kind: LocationKind;
-  gangId: string; // All nodes are owned by a single gang
+  gangId: string; // If owned, gangId; if unowned candidate, 'NEUTRAL'
   assignedHoodId?: string; // Hood currently managing or stationed at this node
   isMainHq?: boolean; // True for gang's primary headquarters
+  operationalStatus?: 'ACTIVE' | 'UNSTAFFED' | 'DISCOVERED_CANDIDATE';
+  influenceRadius?: number; // Dynamic ticking influence radius for HQs
+  candidateCost?: number; // Cost to purchase if unowned candidate
 }
 
 export interface PhysicalConnectionDef {
@@ -49,6 +52,9 @@ export interface GangState {
   reputation: number; // 0 to 100
   status: 'ACTIVE' | 'BANKRUPT';
   recentDecisions: GangDecision[];
+  discoveredNodeIds?: string[]; // Candidate nodes discovered by scouts
+  discoveredRouteIds?: string[]; // Candidate border routes discovered by scouts
+  wageBillTotal?: number; // Live calculated periodic payroll
   stats: {
     recruitsTotal: number;
     voyagesLaunched: number;
@@ -74,6 +80,9 @@ export interface RouteServiceState {
   sourceId: string; // RECRUITER node
   targetId: string; // DEPOT node
   mode: 'VAN' | 'BOAT';
+  isCrossBorder?: boolean;
+  assignedSkipperHoodId?: string;
+  operationalStatus?: 'ACTIVE' | 'UNSTAFFED' | 'DISCOVERED_CANDIDATE';
   capacity: number;
   price: number;
   durationTicks: number;
@@ -132,10 +141,11 @@ export type HoodRole =
   | 'DEPOT_GUARD'
   | 'WORKSHOP_MECHANIC'
   | 'VOYAGE_SKIPPER'
+  | 'SCOUT'
   | 'STANDBY';
 
 export interface HoodAssignment {
-  type: 'MANAGE_NODE' | 'PILOT_VOYAGE' | 'IDLE_HQ';
+  type: 'MANAGE_NODE' | 'PILOT_VOYAGE' | 'IDLE_HQ' | 'SCOUT_ZONE';
   targetId: string; // locationId, voyageId, or hqLocationId
   role: HoodRole;
 }
@@ -169,7 +179,12 @@ export interface SimEvent {
     | 'GANG_BANKRUPT'
     | 'GANG_FOUNDED'
     | 'HOOD_HIRED'
-    | 'HOOD_ASSIGNED';
+    | 'HOOD_ASSIGNED'
+    | 'NODE_DISCOVERED'
+    | 'ROUTE_DISCOVERED'
+    | 'NODE_PURCHASED'
+    | 'ROUTE_PURCHASED'
+    | 'PAYROLL_PAID';
   description: string;
   importance: 'LOW' | 'MEDIUM' | 'HIGH';
   gangId?: string;

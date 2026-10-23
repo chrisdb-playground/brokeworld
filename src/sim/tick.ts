@@ -4,9 +4,17 @@ import { spawnChumigrants } from './spawner';
 import { processRecruitment } from './recruitment';
 import { processVoyages } from './voyages';
 import { processGangAI } from './ai';
+import { processScouts } from './scouts';
+import { processPayroll, hireHood } from './hoods';
 import { assertInvariants } from './invariants';
 
-import { executePurchaseHQ, executePurchaseNode } from './influence';
+import {
+  executePurchaseHQ,
+  executePurchaseNode,
+  executeClaimCandidateNode,
+  executePurchaseBorderRoute,
+  tickInfluenceGrowth,
+} from './influence';
 
 export function tickWorld(
   state: WorldSnapshot,
@@ -23,19 +31,28 @@ export function tickWorld(
     handleCommand(state, cmd, newEvents, prng);
   }
 
-  // 3. Chumigrant Spawning (East Depots only)
+  // 3. Scout Hoods Discovery (active scouts discover candidate sites & route opportunities)
+  processScouts(state, prng, newEvents);
+
+  // 4. Periodic Payroll (hood wages deducted every 60 ticks)
+  processPayroll(state, newEvents);
+
+  // 5. Dynamic Influence Ticking (HQ radius expands over time)
+  tickInfluenceGrowth(state);
+
+  // 6. Chumigrant Spawning
   spawnChumigrants(state, prng, newEvents);
 
-  // 4. Gang AI Decisions (reviews periodically)
+  // 7. Gang AI Decisions (reviews operations, hires scouts, buys nodes & routes)
   processGangAI(state, prng, newEvents);
 
-  // 5. Recruitment at East Depots
+  // 8. Recruitment at East & West Recruiters
   processRecruitment(state, prng, newEvents);
 
-  // 6. Voyage Scheduling & Progress (cross-border Depot -> Depot)
+  // 9. Voyage Scheduling & Progress (cross-border and intra-region)
   processVoyages(state, prng, newEvents);
 
-  // 7. Event Log Maintenance (keep recent 100 events, no memory leaks)
+  // 10. Event Log Maintenance (keep recent 100 events, no memory leaks)
   if (newEvents.length > 0) {
     state.events.unshift(...newEvents);
     if (state.events.length > 100) {
@@ -43,10 +60,10 @@ export function tickWorld(
     }
   }
 
-  // 8. Update stats counts
+  // 11. Update stats counts
   state.stats.totalActiveRoutes = Object.values(state.routes).filter((r) => r.status === 'ACTIVE').length;
 
-  // 9. Check simulation invariants
+  // 12. Check simulation invariants
   assertInvariants(state);
 
   return state;
@@ -112,6 +129,56 @@ function handleCommand(
         importance: 'LOW',
         gangId: payload.gangId,
       });
+    }
+  } else if (cmd.type === 'CLAIM_CANDIDATE_NODE') {
+    const payload = cmd.payload as {
+      gangId: string;
+      candidateId: string;
+    };
+    try {
+      executeClaimCandidateNode(state, payload.gangId, payload.candidateId, prng, events);
+    } catch (err: unknown) {
+      events.push({
+        id: `EVT_ERR_CLAIM_${state.tick}`,
+        tick: state.tick,
+        type: 'OPERATION_CLOSED',
+        description: `Failed to claim candidate ${payload.candidateId}: ${err instanceof Error ? err.message : String(err)}`,
+        importance: 'LOW',
+        gangId: payload.gangId,
+      });
+    }
+  } else if (cmd.type === 'PURCHASE_BORDER_ROUTE') {
+    const payload = cmd.payload as {
+      gangId: string;
+      sourceRecruiterId: string;
+      targetDepotId: string;
+    };
+    try {
+      executePurchaseBorderRoute(state, payload.gangId, payload.sourceRecruiterId, payload.targetDepotId, prng, events);
+    } catch (err: unknown) {
+      events.push({
+        id: `EVT_ERR_PURCHASE_ROUTE_${state.tick}`,
+        tick: state.tick,
+        type: 'OPERATION_CLOSED',
+        description: `Failed to purchase border route: ${err instanceof Error ? err.message : String(err)}`,
+        importance: 'LOW',
+        gangId: payload.gangId,
+      });
+    }
+  } else if (cmd.type === 'HIRE_SCOUT') {
+    const payload = cmd.payload as {
+      gangId: string;
+    };
+    const gang = state.gangs[payload.gangId];
+    if (gang && gang.status === 'ACTIVE') {
+      hireHood(
+        state,
+        gang.id,
+        'SCOUT',
+        { type: 'SCOUT_ZONE', targetId: gang.mainHqLocationId || gang.hqLocationId, role: 'SCOUT' },
+        prng,
+        events
+      );
     }
   }
 }
