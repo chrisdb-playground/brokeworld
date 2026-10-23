@@ -19,6 +19,21 @@ export interface LocationDef {
   operationalStatus?: 'ACTIVE' | 'UNSTAFFED' | 'DISCOVERED_CANDIDATE';
   influenceRadius?: number; // Dynamic ticking influence radius for HQs
   candidateCost?: number; // Cost to purchase if unowned candidate
+  discoveredByGangId?: string; // Gang whose scout dynamically discovered this candidate site
+  createdAtTick?: number; // Tick when dynamically created by scout
+  expiresAtTick?: number; // Tick when this unowned candidate node is removed if not purchased
+}
+
+export interface CandidateRouteOpportunity {
+  id: string;
+  gangId: string;
+  sourceId: string; // RECRUITER node
+  targetId: string; // DEPOT node
+  charterCost: number;
+  mode: 'BOAT' | 'VAN';
+  isCrossBorder: boolean;
+  createdAtTick: number;
+  expiresAtTick: number;
 }
 
 export interface PhysicalConnectionDef {
@@ -54,6 +69,7 @@ export interface GangState {
   recentDecisions: GangDecision[];
   discoveredNodeIds?: string[]; // Candidate nodes discovered by scouts
   discoveredRouteIds?: string[]; // Candidate border routes discovered by scouts
+  discoveredCandidateRoutes?: CandidateRouteOpportunity[]; // Structured candidate routes with expiration
   wageBillTotal?: number; // Live calculated periodic payroll
   stats: {
     recruitsTotal: number;
@@ -184,6 +200,10 @@ export interface SimEvent {
     | 'ROUTE_DISCOVERED'
     | 'NODE_PURCHASED'
     | 'ROUTE_PURCHASED'
+    | 'NODE_EXPIRED'
+    | 'ROUTE_EXPIRED'
+    | 'AREA_SCOUTED'
+    | 'ROUTE_SEARCHED'
     | 'PAYROLL_PAID';
   description: string;
   importance: 'LOW' | 'MEDIUM' | 'HIGH';

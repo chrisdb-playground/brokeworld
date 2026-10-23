@@ -423,6 +423,7 @@ export function executeClaimCandidateNode(
   gang.cash -= cost;
   loc.gangId = gangId;
   loc.operationalStatus = 'ACTIVE';
+  delete loc.expiresAtTick;
 
   if (loc.kind === 'HQ') {
     if (!gang.hqLocationIds) gang.hqLocationIds = gang.hqLocationId ? [gang.hqLocationId] : [];
@@ -577,9 +578,14 @@ export function executePurchaseBorderRoute(
   state.routes[routeId] = route;
   state.stats.totalActiveRoutes++;
 
-  // Remove from discoveredRouteIds
+  // Remove from discoveredRouteIds and discoveredCandidateRoutes
   if (gang.discoveredRouteIds) {
     gang.discoveredRouteIds = gang.discoveredRouteIds.filter((k) => k !== connId && k !== connKey);
+  }
+  if (gang.discoveredCandidateRoutes) {
+    gang.discoveredCandidateRoutes = gang.discoveredCandidateRoutes.filter(
+      (cr) => !(cr.sourceId === src.id && cr.targetId === tgt.id)
+    );
   }
 
   if (events) {

@@ -157,8 +157,8 @@ export function processGangAI(
   const activeGangs = Object.values(state.gangs).filter((g) => g.status === 'ACTIVE');
   if (activeGangs.length < 2) {
     const backupSyndicates = [
-      { id: 'GANG_ABYSSAL_TIDE', name: 'Abyssal Tide', color: '#a855f7', colorNum: 0xa855f7, emblem: '⬡', xOff: 350 },
-      { id: 'GANG_EMERALD_CORAL', name: 'Emerald Coral', color: '#10b981', colorNum: 0x10b981, emblem: '✿', xOff: 650 },
+      { id: 'GANG_ABYSSAL_TIDE', name: 'Abyssal Tide', color: '#a855f7', colorNum: 0xa855f7, emblem: '⬡', xOff: 1350 },
+      { id: 'GANG_EMERALD_CORAL', name: 'Emerald Coral', color: '#10b981', colorNum: 0x10b981, emblem: '✿', xOff: 2850 },
     ];
     for (const synd of backupSyndicates) {
       if (!state.gangs[synd.id] || state.gangs[synd.id].status !== 'ACTIVE') {
@@ -196,6 +196,7 @@ export function processGangAI(
           status: 'ACTIVE',
           discoveredNodeIds: [],
           discoveredRouteIds: [],
+          discoveredCandidateRoutes: [],
           wageBillTotal: 30,
           recentDecisions: [{ tick: state.tick, action: 'FOUND_GANG', reason: 'Chartered syndicate with European Main HQ.' }],
           stats: { recruitsTotal: 0, voyagesLaunched: 0, voyagesSuccessful: 0, voyagesDisrupted: 0, revenueTotal: 0 },

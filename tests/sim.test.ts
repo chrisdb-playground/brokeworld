@@ -5,6 +5,7 @@ import { tickWorld } from '../src/sim/tick';
 import { processRecruitment } from '../src/sim/recruitment';
 import { LocalGameEngine } from '../src/app/GamePort';
 import { executeClaimCandidateNode, executePurchaseBorderRoute } from '../src/sim/influence';
+import { scoutAreaForNodes } from '../src/sim/scouts';
 
 describe('Broke World Simulation Core', () => {
   it('is completely deterministic across runs with the same seed', () => {
@@ -101,9 +102,19 @@ describe('Broke World Simulation Core', () => {
     const prng = createPrng(888);
     const state = createInitialWorld(prng);
 
-    // Claim recruiter and depot, and establish border route
-    const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_REC_NEON_AFR', prng);
-    const depot = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_DEPOT_NEON_EUR', prng);
+    // Dynamically scout recruiter and depot, and establish border route
+    const afrCand = scoutAreaForNodes(state, 'GANG_NEON_GILL', prng, 'AFRICA');
+    const recCand = afrCand.find((n) => n.kind === 'RECRUITER') || afrCand[0];
+    recCand.kind = 'RECRUITER';
+    recCand.tileFamily = 'crusher';
+    const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', recCand.id, prng);
+
+    const eurCand = scoutAreaForNodes(state, 'GANG_NEON_GILL', prng, 'EUROPE');
+    const depCand = eurCand.find((n) => n.kind === 'DEPOT') || eurCand[0];
+    depCand.kind = 'DEPOT';
+    depCand.tileFamily = 'pressure-tank';
+    const depot = executeClaimCandidateNode(state, 'GANG_NEON_GILL', depCand.id, prng);
+
     const afrRoute = executePurchaseBorderRoute(state, 'GANG_NEON_GILL', rec.id, depot.id, prng);
     expect(afrRoute).toBeDefined();
 
@@ -157,8 +168,18 @@ describe('Broke World Simulation Core', () => {
     const prng = createPrng(1234);
     const state = createInitialWorld(prng);
 
-    const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_REC_NEON_AFR', prng);
-    const depot = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_DEPOT_NEON_EUR', prng);
+    const afrCand = scoutAreaForNodes(state, 'GANG_NEON_GILL', prng, 'AFRICA');
+    const recCand = afrCand.find((n) => n.kind === 'RECRUITER') || afrCand[0];
+    recCand.kind = 'RECRUITER';
+    recCand.tileFamily = 'crusher';
+    const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', recCand.id, prng);
+
+    const eurCand = scoutAreaForNodes(state, 'GANG_NEON_GILL', prng, 'EUROPE');
+    const depCand = eurCand.find((n) => n.kind === 'DEPOT') || eurCand[0];
+    depCand.kind = 'DEPOT';
+    depCand.tileFamily = 'pressure-tank';
+    const depot = executeClaimCandidateNode(state, 'GANG_NEON_GILL', depCand.id, prng);
+
     const route = executePurchaseBorderRoute(state, 'GANG_NEON_GILL', rec.id, depot.id, prng);
     const migrant = {
       id: 'MIGRANT_TEST_1',
@@ -224,8 +245,18 @@ describe('Broke World Simulation Core', () => {
     const prng = createPrng(555);
     const state = createInitialWorld(prng);
 
-    const recLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_REC_NEON_AFR', prng);
-    const depotLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_DEPOT_NEON_EUR', prng);
+    const afrCand = scoutAreaForNodes(state, 'GANG_NEON_GILL', prng, 'AFRICA');
+    const recCand = afrCand.find((n) => n.kind === 'RECRUITER') || afrCand[0];
+    recCand.kind = 'RECRUITER';
+    recCand.tileFamily = 'crusher';
+    const recLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', recCand.id, prng);
+
+    const eurCand = scoutAreaForNodes(state, 'GANG_NEON_GILL', prng, 'EUROPE');
+    const depCand = eurCand.find((n) => n.kind === 'DEPOT') || eurCand[0];
+    depCand.kind = 'DEPOT';
+    depCand.tileFamily = 'pressure-tank';
+    const depotLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', depCand.id, prng);
+
     executePurchaseBorderRoute(state, 'GANG_NEON_GILL', recLoc.id, depotLoc.id, prng);
 
     // Detach the managing Hood from this recruiter
@@ -271,8 +302,16 @@ describe('Broke World Simulation Core', () => {
     const state = createInitialWorld(prng);
 
     // Claim European depot and workshop for Neon Gill
-    const depLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_DEPOT_NEON_EUR', prng);
-    const wsLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', 'CAND_WS_NEON', prng);
+    const eurCand = scoutAreaForNodes(state, 'GANG_NEON_GILL', prng, 'EUROPE');
+    const depCand = eurCand.find((n) => n.kind === 'DEPOT') || eurCand[0];
+    depCand.kind = 'DEPOT';
+    depCand.tileFamily = 'pressure-tank';
+    const depLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', depCand.id, prng);
+
+    const wsCand = eurCand.find((n) => n.kind === 'WORKSHOP') || eurCand[1];
+    wsCand.kind = 'WORKSHOP';
+    wsCand.tileFamily = 'industrial-press';
+    const wsLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', wsCand.id, prng);
 
     // Advance 1 tick to establish automatic intra-region route
     tickWorld(state, prng);

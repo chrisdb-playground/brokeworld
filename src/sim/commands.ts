@@ -7,6 +7,7 @@ import {
   executeClaimCandidateNode,
   executePurchaseBorderRoute,
 } from './influence';
+import { scoutAreaForNodes, scoutSearchForRoutes } from './scouts';
 
 /**
  * Handle user/agent interactive commands dispatched to the simulation engine.
@@ -122,5 +123,19 @@ export function handleCommand(
         events
       );
     }
+  } else if (cmd.type === 'SCOUT_AREA') {
+    const payload = cmd.payload as {
+      gangId: string;
+      region?: RegionId;
+      x?: number;
+      y?: number;
+    };
+    const center = payload.x !== undefined && payload.y !== undefined ? { x: payload.x, y: payload.y } : undefined;
+    scoutAreaForNodes(state, payload.gangId, prng, payload.region, center, events);
+  } else if (cmd.type === 'SEARCH_ROUTES') {
+    const payload = cmd.payload as {
+      gangId: string;
+    };
+    scoutSearchForRoutes(state, payload.gangId, prng, events);
   }
 }

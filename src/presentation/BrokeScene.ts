@@ -278,16 +278,16 @@ export class BrokeScene extends Phaser.Scene {
   }
 
   create() {
-    // 0. Sandy Floor / Background TileSprite
-    this.floorTile = this.add.tileSprite(600, 500, 4200, 3200, 'sandy_floor').setDepth(0);
+    // 0. Sandy Floor / Background TileSprite spanning wide world
+    this.floorTile = this.add.tileSprite(2100, 500, 6400, 3200, 'sandy_floor').setDepth(0);
 
     // 0.5. Water Tile Sprites separating regions
     // English Channel Water (y: 140 to 280, height: 140px, center: 210)
-    this.channelWaterTile = this.add.tileSprite(600, 210, 4200, 140, 'water_tile').setDepth(0.5);
+    this.channelWaterTile = this.add.tileSprite(2100, 210, 6400, 140, 'water_tile').setDepth(0.5);
     this.channelWaterTile.setAlpha(0.92);
 
     // Mediterranean Sea Water (y: 660 to 860, height: 200px, center: 760)
-    this.medWaterTile = this.add.tileSprite(600, 760, 4200, 200, 'water_tile').setDepth(0.5);
+    this.medWaterTile = this.add.tileSprite(2100, 760, 6400, 200, 'water_tile').setDepth(0.5);
     this.medWaterTile.setAlpha(0.92);
 
     // 1. Graphics layers in depth order
@@ -295,7 +295,7 @@ export class BrokeScene extends Phaser.Scene {
 
     // Influence Heatmap Layers (Depth 1.4, strictly masked per region)
     // Rule: "heat map stops at border."
-    const worldW = 1800;
+    const worldW = 4600;
     const startX = -300;
 
     // UK Influence Mask (y: -100 to 160)
@@ -352,8 +352,8 @@ export class BrokeScene extends Phaser.Scene {
     });
 
     // Center camera on world center for spacious multi-region layout
-    this.cameras.main.centerOn(600, 500);
-    this.cameras.main.setZoom(0.74);
+    this.cameras.main.centerOn(2100, 500);
+    this.cameras.main.setZoom(0.46);
 
     // Mark scene as ready
     this.isSceneReady = true;
@@ -393,87 +393,84 @@ export class BrokeScene extends Phaser.Scene {
       padding: { x: 6, y: 3 },
     };
 
-    // 1. UK Region Title
-    this.labelsContainer.add(
-      this.add.text(20, -10, '🇬🇧 UNITED KINGDOM (UK) — FINAL DESTINATION', {
-        ...titleStyle,
+    // Render region & border labels across the 3 main longitudinal sectors (West, Central, East)
+    const sectorXs = [
+      { x: 600, name: 'WEST SECTOR (NEON)' },
+      { x: 2100, name: 'CENTRAL SECTOR (CRIMSON)' },
+      { x: 3600, name: 'EAST SECTOR (AMBER)' },
+    ];
+
+    for (const sec of sectorXs) {
+      // 1. UK Region Title
+      this.labelsContainer.add(
+        this.add.text(sec.x, -10, `🇬🇧 UNITED KINGDOM — ${sec.name}`, {
+          ...titleStyle,
+          color: '#38bdf8',
+        }).setOrigin(0.5, 0)
+      );
+
+      // 2. English Channel Borders (2 Sides: IN to UK, OUT of Europe)
+      const ukBorderText = this.add.text(sec.x, 128, '▼ BORDER IN TO UK — DOVER MARITIME ENTRY', {
+        ...borderStyle,
         color: '#38bdf8',
-      })
-    );
+        backgroundColor: '#0c2a47ee',
+      }).setOrigin(0.5, 1);
+      this.labelsContainer.add(ukBorderText);
 
-    // 2. English Channel Borders (2 Sides: IN to UK, OUT of Europe)
-    // Border IN to UK (North edge of channel at y = 140)
-    const ukBorderText = this.add.text(420, 128, '▼ BORDER IN TO UK — DOVER MARITIME ENTRY', {
-      ...borderStyle,
-      color: '#38bdf8',
-      backgroundColor: '#0c2a47ee',
-    });
-    ukBorderText.setOrigin(0.5, 1);
-    this.labelsContainer.add(ukBorderText);
+      const channelSeaText = this.add.text(sec.x, 210, '🌊 ENGLISH CHANNEL MARITIME CORRIDOR', {
+        ...borderStyle,
+        fontSize: '11px',
+        color: '#7dd3fc',
+        backgroundColor: '#0369a199',
+      }).setOrigin(0.5, 0.5);
+      this.labelsContainer.add(channelSeaText);
 
-    // Center Channel Water Label
-    const channelSeaText = this.add.text(420, 210, '🌊 ENGLISH CHANNEL MARITIME CORRIDOR — WATER PASSAGE TO UK', {
-      ...borderStyle,
-      fontSize: '11px',
-      color: '#7dd3fc',
-      backgroundColor: '#0369a199',
-    });
-    channelSeaText.setOrigin(0.5, 0.5);
-    this.labelsContainer.add(channelSeaText);
-
-    // Border OUT of Europe (South edge of channel at y = 280)
-    const eurNorthBorderText = this.add.text(420, 292, '▲ BORDER OUT OF EUROPE — CHANNEL DEPARTURE PERIMETER', {
-      ...borderStyle,
-      color: '#4ade80',
-      backgroundColor: '#064e3bee',
-    });
-    eurNorthBorderText.setOrigin(0.5, 0);
-    this.labelsContainer.add(eurNorthBorderText);
-
-    // 3. West Europe Region Title
-    this.labelsContainer.add(
-      this.add.text(20, 300, '🇪🇺 WEST EUROPE — TRANSIT & DESTINATION', {
-        ...titleStyle,
+      const eurNorthBorderText = this.add.text(sec.x, 292, '▲ BORDER OUT OF EUROPE — CHANNEL DEPARTURE PERIMETER', {
+        ...borderStyle,
         color: '#4ade80',
-      })
-    );
+        backgroundColor: '#064e3bee',
+      }).setOrigin(0.5, 0);
+      this.labelsContainer.add(eurNorthBorderText);
 
-    // 4. Mediterranean Sea Borders (2 Sides: IN to Europe, OUT of Africa)
-    // Border IN to Europe (North edge of Mediterranean at y = 660)
-    const eurSouthBorderText = this.add.text(420, 648, '▼ BORDER IN TO EUROPE — MEDITERRANEAN ENTRY CHECKPOINT', {
-      ...borderStyle,
-      color: '#4ade80',
-      backgroundColor: '#064e3bee',
-    });
-    eurSouthBorderText.setOrigin(0.5, 1);
-    this.labelsContainer.add(eurSouthBorderText);
+      // 3. West Europe Region Title
+      this.labelsContainer.add(
+        this.add.text(sec.x, 305, `🇪🇺 EUROPEAN CORRIDOR — ${sec.name}`, {
+          ...titleStyle,
+          color: '#4ade80',
+        }).setOrigin(0.5, 0)
+      );
 
-    // Center Mediterranean Sea Label
-    const medSeaText = this.add.text(420, 760, '🌊 MEDITERRANEAN SEA WATERS — CROSS-BORDER BOAT CORRIDOR', {
-      ...borderStyle,
-      fontSize: '11px',
-      color: '#fde047',
-      backgroundColor: '#854d0e99',
-    });
-    medSeaText.setOrigin(0.5, 0.5);
-    this.labelsContainer.add(medSeaText);
+      // 4. Mediterranean Sea Borders (2 Sides: IN to Europe, OUT of Africa)
+      const eurSouthBorderText = this.add.text(sec.x, 648, '▼ BORDER IN TO EUROPE — MEDITERRANEAN ENTRY CHECKPOINT', {
+        ...borderStyle,
+        color: '#4ade80',
+        backgroundColor: '#064e3bee',
+      }).setOrigin(0.5, 1);
+      this.labelsContainer.add(eurSouthBorderText);
 
-    // Border OUT of Africa (South edge of Mediterranean at y = 860)
-    const afrBorderText = this.add.text(420, 872, '▲ BORDER OUT OF AFRICA — MARITIME DEPARTURE BORDER', {
-      ...borderStyle,
-      color: '#fb923c',
-      backgroundColor: '#7c2d12ee',
-    });
-    afrBorderText.setOrigin(0.5, 0);
-    this.labelsContainer.add(afrBorderText);
+      const medSeaText = this.add.text(sec.x, 760, '🌊 MEDITERRANEAN SEA WATERS — CROSS-BORDER BOAT CORRIDOR', {
+        ...borderStyle,
+        fontSize: '11px',
+        color: '#fde047',
+        backgroundColor: '#854d0e99',
+      }).setOrigin(0.5, 0.5);
+      this.labelsContainer.add(medSeaText);
 
-    // 5. North Africa Region Title
-    this.labelsContainer.add(
-      this.add.text(20, 880, '🌍 NORTH AFRICA — MIGRANT ORIGINS', {
-        ...titleStyle,
+      const afrBorderText = this.add.text(sec.x, 872, '▲ BORDER OUT OF AFRICA — MARITIME DEPARTURE BORDER', {
+        ...borderStyle,
         color: '#fb923c',
-      })
-    );
+        backgroundColor: '#7c2d12ee',
+      }).setOrigin(0.5, 0);
+      this.labelsContainer.add(afrBorderText);
+
+      // 5. North Africa Region Title
+      this.labelsContainer.add(
+        this.add.text(sec.x, 885, `🌍 NORTH AFRICA — ${sec.name}`, {
+          ...titleStyle,
+          color: '#fb923c',
+        }).setOrigin(0.5, 0)
+      );
+    }
   }
 
   private setupCameraControls() {
@@ -542,7 +539,7 @@ export class BrokeScene extends Phaser.Scene {
     this.input.on('wheel', (pointer: Phaser.Input.Pointer, _obj: unknown, _dx: number, dy: number) => {
       const cam = this.cameras.main;
       const zoomFactor = dy > 0 ? 0.9 : 1.12;
-      const newZoom = Phaser.Math.Clamp(cam.zoom * zoomFactor, 0.4, 2.5);
+      const newZoom = Phaser.Math.Clamp(cam.zoom * zoomFactor, 0.2, 2.5);
 
       const mouseWorldX = (pointer.x - cam.width / 2) / cam.zoom + cam.midPoint.x;
       const mouseWorldY = (pointer.y - cam.height / 2) / cam.zoom + cam.midPoint.y;
@@ -871,7 +868,7 @@ export class BrokeScene extends Phaser.Scene {
     const gfx = this.bgGfx;
     gfx.clear();
 
-    const worldW = 1800;
+    const worldW = 4600;
     const startX = -300;
 
     // 1. UK Land Region (North: y: -100 to 160) - Oceanic Navy
@@ -1009,10 +1006,12 @@ export class BrokeScene extends Phaser.Scene {
       }
 
       // Visibility Rule:
-      // "make unowned nodes not visible"
-      // Unowned / candidate nodes are not visible. Only show owned nodes of currently selected gangs.
-      const isOwned = loc.gangId !== 'NEUTRAL' && loc.operationalStatus !== 'DISCOVERED_CANDIDATE';
-      const isVisible = isOwned && this.selectedGangIds.has(loc.gangId);
+      // Show owned nodes of currently selected gangs, AND candidate nodes discovered by selected gangs!
+      const isCandidate = loc.operationalStatus === 'DISCOVERED_CANDIDATE';
+      const isOwned = loc.gangId !== 'NEUTRAL' && !isCandidate;
+      const isCandidateVisible = isCandidate && (!loc.discoveredByGangId || this.selectedGangIds.has(loc.discoveredByGangId) || this.selectedGangIds.size === 0);
+      const isOwnedVisible = isOwned && this.selectedGangIds.has(loc.gangId);
+      const isVisible = isOwnedVisible || isCandidateVisible;
       container.setVisible(isVisible);
 
       const hitZone = container.list.find((obj) => obj instanceof Phaser.GameObjects.Zone) as Phaser.GameObjects.Zone | undefined;
@@ -1171,7 +1170,7 @@ export class BrokeScene extends Phaser.Scene {
     baseGfx.fillStyle(0x0f172a, 0.95);
     baseGfx.fillRoundedRect(-36, -36, 72, 72, 8);
 
-    const isCandidate = loc.gangId === 'NEUTRAL';
+    const isCandidate = loc.operationalStatus === 'DISCOVERED_CANDIDATE' || loc.gangId === 'NEUTRAL';
     const isUnstaffed = !isCandidate && !loc.assignedHoodId;
 
     if (isSelected) {
@@ -1181,7 +1180,7 @@ export class BrokeScene extends Phaser.Scene {
       baseGfx.lineStyle(2, 0xffffff, 1.0);
       baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
     } else if (isCandidate) {
-      baseGfx.lineStyle(2, 0x64748b, 0.65);
+      baseGfx.lineStyle(2.5, 0x38bdf8, 0.85);
       baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
     } else {
       baseGfx.lineStyle(2, strokeColor, 0.9);
@@ -1189,11 +1188,13 @@ export class BrokeScene extends Phaser.Scene {
     }
 
     if (isCandidate) {
-      countText.setText(`$${loc.candidateCost || 1800}`);
-      badgeGfx.fillStyle(0x0f172a, 0.9);
-      badgeGfx.fillRoundedRect(-34, -54, 68, 18, 4);
-      badgeGfx.lineStyle(1.5, 0x64748b, 0.85);
-      badgeGfx.strokeRoundedRect(-34, -54, 68, 18, 4);
+      const remaining = loc.expiresAtTick !== undefined ? Math.max(0, loc.expiresAtTick - snapshot.tick) : null;
+      const timerStr = remaining !== null ? ` ⏳${remaining}t` : '';
+      countText.setText(`$${loc.candidateCost || 1500}${timerStr}`);
+      badgeGfx.fillStyle(0x0f172a, 0.92);
+      badgeGfx.fillRoundedRect(-44, -54, 88, 18, 4);
+      badgeGfx.lineStyle(1.5, 0x38bdf8, 0.9);
+      badgeGfx.strokeRoundedRect(-44, -54, 88, 18, 4);
     } else if (isUnstaffed) {
       countText.setText('⚠️ UNSTAFFED');
       badgeGfx.fillStyle(0x451a03, 0.9);

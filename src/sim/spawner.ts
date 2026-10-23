@@ -65,7 +65,7 @@ export function spawnMigrants(
 
   if (spawnInAfrica) {
     const africaRecruiters = Object.values(state.locations).filter(
-      (l) => l.kind === 'RECRUITER' && l.region === 'AFRICA'
+      (l) => l.kind === 'RECRUITER' && l.region === 'AFRICA' && l.operationalStatus === 'ACTIVE' && l.gangId !== 'NEUTRAL'
     );
     if (africaRecruiters.length === 0) return;
     recNode = prng.pick(africaRecruiters);
@@ -75,7 +75,7 @@ export function spawnMigrants(
     desiredRegion = prng.chance(0.5) ? 'EUROPE' : 'UK';
   } else {
     const europeRecruiters = Object.values(state.locations).filter(
-      (l) => l.kind === 'RECRUITER' && l.region === 'EUROPE'
+      (l) => l.kind === 'RECRUITER' && l.region === 'EUROPE' && l.operationalStatus === 'ACTIVE' && l.gangId !== 'NEUTRAL'
     );
     if (europeRecruiters.length === 0) return;
     recNode = prng.pick(europeRecruiters);

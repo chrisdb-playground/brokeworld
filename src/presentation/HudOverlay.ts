@@ -338,6 +338,29 @@ export class HudOverlay {
           return;
         }
 
+        const scoutAreaBtn = target.closest<HTMLButtonElement>('.btn-scout-area');
+        if (scoutAreaBtn) {
+          e.stopPropagation();
+          const gId = scoutAreaBtn.getAttribute('data-gang-id');
+          const reg = scoutAreaBtn.getAttribute('data-region') as RegionId | undefined;
+          if (gId) {
+            this.port.dispatch({ type: 'SCOUT_AREA', payload: { gangId: gId, region: reg || undefined } });
+            setTimeout(() => this.renderInspector(), 50);
+          }
+          return;
+        }
+
+        const searchRoutesBtn = target.closest<HTMLButtonElement>('.btn-search-routes');
+        if (searchRoutesBtn) {
+          e.stopPropagation();
+          const gId = searchRoutesBtn.getAttribute('data-gang-id');
+          if (gId) {
+            this.port.dispatch({ type: 'SEARCH_ROUTES', payload: { gangId: gId } });
+            setTimeout(() => this.renderInspector(), 50);
+          }
+          return;
+        }
+
         const hireScoutBtn = target.closest<HTMLButtonElement>('.btn-hire-scout');
         if (hireScoutBtn) {
           e.stopPropagation();
@@ -473,6 +496,10 @@ export class HudOverlay {
         // Attach persistent click listener once!
         card.addEventListener('click', () => {
           this.toggleGang(gang.id);
+          const targetLocId = gang.mainHqLocationId || gang.hqLocationId;
+          if (this.onFocusLocation && targetLocId) {
+            this.onFocusLocation(targetLocId);
+          }
         });
 
         list.appendChild(card);
@@ -671,6 +698,22 @@ export class HudOverlay {
         );
       });
 
+      const candidateRoutes = (gang.discoveredCandidateRoutes && gang.discoveredCandidateRoutes.length > 0)
+        ? gang.discoveredCandidateRoutes.map((cr) => ({
+            key: cr.id,
+            src: this.currentSnapshot.locations[cr.sourceId],
+            tgt: this.currentSnapshot.locations[cr.targetId],
+            cost: cr.charterCost,
+            expiresAtTick: cr.expiresAtTick,
+          })).filter((item) => item.src && item.tgt)
+        : uncharteredCorridors.map((c) => ({
+            key: c.key,
+            src: c.src,
+            tgt: c.tgt,
+            cost: 1200,
+            expiresAtTick: undefined as number | undefined,
+          }));
+
       content.innerHTML = `
         <div class="gang-header-banner" style="border-left: 4px solid ${gang.color}">
           <h2 style="color: ${gang.color}">${gang.emblem} ${gang.name}</h2>
@@ -696,16 +739,37 @@ export class HudOverlay {
           <div class="insp-row"><span class="lbl">ACTIVE ROUTES</span><span class="val" id="insp-gang-routes">${routes.filter((r) => r.status === 'ACTIVE').length}</span></div>
         </div>
 
+        <div class="insp-subhead">SCOUTING OPERATIONS</div>
+        <div class="scout-actions-bar" style="display: flex; gap: 5px; margin: 6px 0; flex-wrap: wrap;">
+          <button class="btn-scout-area" data-gang-id="${gang.id}" data-region="AFRICA" style="flex: 1; min-width: 90px; background: #c2410c; color: #fff; padding: 7px 6px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; font-size: 11px;">
+            🌍 Scout Africa
+          </button>
+          <button class="btn-scout-area" data-gang-id="${gang.id}" data-region="EUROPE" style="flex: 1; min-width: 90px; background: #0284c7; color: #fff; padding: 7px 6px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; font-size: 11px;">
+            🇪🇺 Scout Europe
+          </button>
+          <button class="btn-scout-area" data-gang-id="${gang.id}" data-region="UK" style="flex: 1; min-width: 90px; background: #4f46e5; color: #fff; padding: 7px 6px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; font-size: 11px;">
+            🇬🇧 Scout UK
+          </button>
+          <button class="btn-search-routes" data-gang-id="${gang.id}" style="flex: 1; min-width: 130px; background: #059669; color: #fff; padding: 7px 8px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; font-size: 11px;">
+            🧭 Search Sea Routes
+          </button>
+        </div>
+        <div class="build-hint" style="margin-bottom: 8px;">
+          💡 Scouts can explore any region with 0% influence to discover new Regional HQ sites & establish influence across borders!
+        </div>
+
         <div class="insp-subhead">SCOUT DISCOVERIES: CANDIDATE SITES (${candidateNodes.length})</div>
         <div class="discovery-list" id="insp-gang-candidate-nodes">
           ${candidateNodes.map((c) => {
             const cost = c.candidateCost || 1500;
             const canAfford = gang.cash >= cost;
+            const remaining = c.expiresAtTick !== undefined ? Math.max(0, c.expiresAtTick - this.currentSnapshot.tick) : null;
+            const timerBadge = remaining !== null ? `<span style="color:#f59e0b;font-weight:bold;margin-left:4px;">⏳ ${remaining}t</span>` : '';
             return `
               <div class="discovery-item">
                 <div class="discovery-info">
                   <div class="discovery-title">📍 ${c.name} (${c.region})</div>
-                  <div class="discovery-sub">${c.kind} • Acquisition: $${cost}</div>
+                  <div class="discovery-sub">${c.kind} • Acquisition: $${cost}${timerBadge}</div>
                 </div>
                 <button class="btn-claim-candidate" data-gang-id="${gang.id}" data-candidate-id="${c.id}" ${canAfford ? '' : 'disabled'}>
                   Claim ($${cost})
@@ -713,26 +777,29 @@ export class HudOverlay {
               </div>
             `;
           }).join('')}
-          ${candidateNodes.length === 0 ? '<div class="discovery-empty">Scouts exploring... No unowned candidate sites located yet.</div>' : ''}
+          ${candidateNodes.length === 0 ? '<div class="discovery-empty">Scouts exploring... Click "Scout Area" above to charter potential sites dynamically.</div>' : ''}
         </div>
 
-        <div class="insp-subhead">SCOUT DISCOVERIES: SEA CORRIDORS (${uncharteredCorridors.length})</div>
+        <div class="insp-subhead">SCOUT DISCOVERIES: SEA CORRIDORS (${candidateRoutes.length})</div>
         <div class="discovery-list" id="insp-gang-candidate-routes">
-          ${uncharteredCorridors.map((c) => {
-            const canAfford = gang.cash >= 1200;
+          ${candidateRoutes.map((c) => {
+            const cost = c.cost || 1000;
+            const canAfford = gang.cash >= cost;
+            const remaining = c.expiresAtTick !== undefined ? Math.max(0, c.expiresAtTick - this.currentSnapshot.tick) : null;
+            const timerBadge = remaining !== null ? `<span style="color:#f59e0b;font-weight:bold;margin-left:4px;">⏳ ${remaining}t</span>` : '';
             return `
               <div class="discovery-item">
                 <div class="discovery-info">
                   <div class="discovery-title">🌊 ${c.src.name} ➔ ${c.tgt.name}</div>
-                  <div class="discovery-sub">Cross-Border Sea Route • Charter: $1,200</div>
+                  <div class="discovery-sub">Cross-Border Sea Route • Charter: $${cost}${timerBadge}</div>
                 </div>
                 <button class="btn-charter-route" data-gang-id="${gang.id}" data-src-id="${c.src.id}" data-tgt-id="${c.tgt.id}" ${canAfford ? '' : 'disabled'}>
-                  Charter ($1,200)
+                  Charter ($${cost})
                 </button>
               </div>
             `;
           }).join('')}
-          ${uncharteredCorridors.length === 0 ? '<div class="discovery-empty">Scouts exploring... No uncharted sea corridors discovered yet.</div>' : ''}
+          ${candidateRoutes.length === 0 ? '<div class="discovery-empty">No active candidate sea corridors. Click "Search Routes" to chart routes.</div>' : ''}
         </div>
 
         <div class="insp-subhead">PURCHASE INFRASTRUCTURE</div>

@@ -93,18 +93,21 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
     const prng = createPrng(1234);
     const state = createInitialWorld(prng);
 
-    // Test Neon Europe HQ at (140, 430) and Crimson Central HQ at (560, 430)
+    // Test Neon Europe HQ and Crimson Central HQ
+    const neonHq = state.locations[state.gangs['GANG_NEON_GILL'].hqLocationId];
+    const crimHq = state.locations[state.gangs['GANG_CRIMSON_CLAW'].hqLocationId];
+
     // At center of Neon HQ:
-    const centerHeat = getEffectiveInfluenceHeat(state, 'GANG_NEON_GILL', 140, 430);
+    const centerHeat = getEffectiveInfluenceHeat(state, 'GANG_NEON_GILL', neonHq.x, neonHq.y);
     expect(centerHeat).toBeGreaterThanOrEqual(0.95);
 
-    // Heat dissipates with distance: 100px away towards the east (240, 430)
-    const midHeat = getEffectiveInfluenceHeat(state, 'GANG_NEON_GILL', 240, 430);
+    // Heat dissipates with distance: 100px away towards the east
+    const midHeat = getEffectiveInfluenceHeat(state, 'GANG_NEON_GILL', neonHq.x + 100, neonHq.y);
     expect(midHeat).toBeLessThan(centerHeat);
     expect(midHeat).toBeGreaterThan(0.4);
 
-    // Far away (> 260px from Neon HQ, outside influence):
-    const farHeat = getEffectiveInfluenceHeat(state, 'GANG_NEON_GILL', 560, 430); // Crimson's center!
+    // Far away (> 260px from Neon HQ, outside influence, at Crimson's epicenter):
+    const farHeat = getEffectiveInfluenceHeat(state, 'GANG_NEON_GILL', crimHq.x, crimHq.y);
     expect(farHeat).toBe(0); // Neon has 0 influence inside Crimson's epicenter
 
     // Test slight overlap behavior between two neighboring HQs:
