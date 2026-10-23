@@ -5,17 +5,15 @@ import { processRecruitment } from './recruitment';
 import { processVoyages } from './voyages';
 import { processGangAI } from './ai';
 import { processScouts } from './scouts';
-import { processPayroll, hireHood } from './hoods';
+import { processPayroll } from './hoods';
 import { assertInvariants } from './invariants';
+import { tickInfluenceGrowth } from './influence';
+import { handleCommand } from './commands';
 
-import {
-  executePurchaseHQ,
-  executePurchaseNode,
-  executeClaimCandidateNode,
-  executePurchaseBorderRoute,
-  tickInfluenceGrowth,
-} from './influence';
-
+/**
+ * Main simulation step function.
+ * Orchestrates pure chronological subsystems and updates the simulation state.
+ */
 export function tickWorld(
   state: WorldSnapshot,
   prng: SeededPrng,
@@ -26,12 +24,12 @@ export function tickWorld(
 
   const newEvents: SimEvent[] = [];
 
-  // 2. Process commands (if any dispatched from UI/inspector)
+  // 2. Process external commands (e.g. from UI inspector, AI commands)
   for (const cmd of commands) {
     handleCommand(state, cmd, newEvents, prng);
   }
 
-  // 3. Scout Hoods Discovery (active scouts discover candidate sites & route opportunities)
+  // 3. Scout Hoods Discovery (discover candidate sites & route opportunities)
   processScouts(state, prng, newEvents);
 
   // 4. Periodic Payroll (hood wages deducted every 60 ticks)
@@ -67,118 +65,4 @@ export function tickWorld(
   assertInvariants(state);
 
   return state;
-}
-
-function handleCommand(
-  state: WorldSnapshot,
-  cmd: SimCommand,
-  events: SimEvent[],
-  prng: SeededPrng
-) {
-  if (cmd.type === 'GANG_AID') {
-    const payload = cmd.payload as { gangId: string; amount: number };
-    const g = state.gangs[payload.gangId];
-    if (g) {
-      g.cash += payload.amount;
-      events.push({
-        id: `EVT_AID_${state.tick}`,
-        tick: state.tick,
-        type: 'OPERATION_OPENED',
-        description: `Observer grant of $${payload.amount} disbursed to ${g.name}.`,
-        importance: 'LOW',
-        gangId: g.id,
-      });
-    }
-  } else if (cmd.type === 'PURCHASE_HQ') {
-    const payload = cmd.payload as {
-      gangId: string;
-      region: import('./types').RegionId;
-      x: number;
-      y: number;
-      name?: string;
-    };
-    try {
-      executePurchaseHQ(state, payload.gangId, payload.region, payload.x, payload.y, prng, payload.name, events);
-    } catch (err: unknown) {
-      events.push({
-        id: `EVT_ERR_PURCHASE_HQ_${state.tick}`,
-        tick: state.tick,
-        type: 'OPERATION_CLOSED',
-        description: `Failed to purchase HQ for ${payload.gangId}: ${err instanceof Error ? err.message : String(err)}`,
-        importance: 'LOW',
-        gangId: payload.gangId,
-      });
-    }
-  } else if (cmd.type === 'PURCHASE_NODE') {
-    const payload = cmd.payload as {
-      gangId: string;
-      kind: import('./types').LocationKind;
-      region: import('./types').RegionId;
-      x: number;
-      y: number;
-      name?: string;
-    };
-    try {
-      executePurchaseNode(state, payload.gangId, payload.kind, payload.region, payload.x, payload.y, prng, payload.name, events);
-    } catch (err: unknown) {
-      events.push({
-        id: `EVT_ERR_PURCHASE_NODE_${state.tick}`,
-        tick: state.tick,
-        type: 'OPERATION_CLOSED',
-        description: `Failed to purchase ${payload.kind} for ${payload.gangId}: ${err instanceof Error ? err.message : String(err)}`,
-        importance: 'LOW',
-        gangId: payload.gangId,
-      });
-    }
-  } else if (cmd.type === 'CLAIM_CANDIDATE_NODE') {
-    const payload = cmd.payload as {
-      gangId: string;
-      candidateId: string;
-    };
-    try {
-      executeClaimCandidateNode(state, payload.gangId, payload.candidateId, prng, events);
-    } catch (err: unknown) {
-      events.push({
-        id: `EVT_ERR_CLAIM_${state.tick}`,
-        tick: state.tick,
-        type: 'OPERATION_CLOSED',
-        description: `Failed to claim candidate ${payload.candidateId}: ${err instanceof Error ? err.message : String(err)}`,
-        importance: 'LOW',
-        gangId: payload.gangId,
-      });
-    }
-  } else if (cmd.type === 'PURCHASE_BORDER_ROUTE') {
-    const payload = cmd.payload as {
-      gangId: string;
-      sourceRecruiterId: string;
-      targetDepotId: string;
-    };
-    try {
-      executePurchaseBorderRoute(state, payload.gangId, payload.sourceRecruiterId, payload.targetDepotId, prng, events);
-    } catch (err: unknown) {
-      events.push({
-        id: `EVT_ERR_PURCHASE_ROUTE_${state.tick}`,
-        tick: state.tick,
-        type: 'OPERATION_CLOSED',
-        description: `Failed to purchase border route: ${err instanceof Error ? err.message : String(err)}`,
-        importance: 'LOW',
-        gangId: payload.gangId,
-      });
-    }
-  } else if (cmd.type === 'HIRE_SCOUT') {
-    const payload = cmd.payload as {
-      gangId: string;
-    };
-    const gang = state.gangs[payload.gangId];
-    if (gang && gang.status === 'ACTIVE') {
-      hireHood(
-        state,
-        gang.id,
-        'SCOUT',
-        { type: 'SCOUT_ZONE', targetId: gang.mainHqLocationId || gang.hqLocationId, role: 'SCOUT' },
-        prng,
-        events
-      );
-    }
-  }
 }
