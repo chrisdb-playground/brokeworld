@@ -150,6 +150,46 @@ function drawClippedCircle(
   }
 }
 
+function getRegionalNodeSpriteKey(loc: LocationDef): string {
+  if (loc.kind === 'HQ') {
+    if (loc.region === 'UK') return 'uk_hq';
+    if (loc.region === 'AFRICA') return 'morrocan_hq';
+    return 'french_hq';
+  }
+  if (loc.kind === 'RECRUITER') {
+    if (loc.region === 'UK') return 'uk_recruiter';
+    if (loc.region === 'AFRICA') return 'morrocan_recruiter';
+    return 'french_recruiter';
+  }
+  if (loc.kind === 'DEPOT') {
+    if (loc.region === 'UK') return 'uk_depot';
+    return 'france_workshop'; // Marseille Transit Depot
+  }
+  if (loc.kind === 'WORKSHOP' || loc.kind === 'CRIMINAL_ENTERPRISE') {
+    return 'france_workshop';
+  }
+  return `tile_${loc.tileFamily}`;
+}
+
+function getRegionalNodeSpriteScale(key: string): number {
+  switch (key) {
+    case 'uk_hq':
+      return 0.084;
+    case 'french_hq':
+    case 'morrocan_hq':
+      return 0.082;
+    case 'uk_recruiter':
+    case 'french_recruiter':
+    case 'morrocan_recruiter':
+      return 0.078;
+    case 'uk_depot':
+    case 'france_workshop':
+      return 0.078;
+    default:
+      return 0.35;
+  }
+}
+
 export class BrokeScene extends Phaser.Scene {
   private port!: GamePort;
   private eventsHandler: SceneSelectionEvents = {};
@@ -231,6 +271,20 @@ export class BrokeScene extends Phaser.Scene {
     this.load.image('french_floor', '/french_floor_tile.png');
     this.load.image('sandy_floor', '/sandy.png');
     this.load.image('water_tile', '/water-tile.png');
+
+    // Preload regional buildings
+    this.load.image('uk_hq', '/uk_hq.png');
+    this.load.image('uk_recruiter', '/uk_recruiter.png');
+    this.load.image('uk_depot', '/uk_depot.png');
+    this.load.image('french_hq', '/french_hq.png');
+    this.load.image('french_recruiter', '/french_recruiter.png');
+    this.load.image('france_workshop', '/france_workshop.png');
+    this.load.image('morrocan_hq', '/morrocan_hq.png');
+    this.load.image('morrocan_recruiter', '/morrocan_recruiter.png');
+
+    // Preload voyage vehicles
+    this.load.image('voyage_boat', '/broke_world_voyage_boat.png');
+    this.load.image('voyage_van', '/broke_world_voyage_van.png');
 
     // 4 machine tiles:
     // 1. Recruiter: 'crusher mk3' tile
@@ -1053,63 +1107,72 @@ export class BrokeScene extends Phaser.Scene {
     baseGfx.setName('baseGfx');
     container.add(baseGfx);
 
-    // Animated machine tile from tiles-demo
-    const tileKey = `tile_${loc.tileFamily}`;
-    const animKey = `anim_${loc.tileFamily}`;
+    // Regional illustrated building sprite with fallback to animated machine tile
+    const spriteKey = getRegionalNodeSpriteKey(loc);
+    if (this.textures.exists(spriteKey)) {
+      const scale = getRegionalNodeSpriteScale(spriteKey);
+      const sprite = this.add.sprite(0, -6, spriteKey);
+      sprite.setScale(scale);
+      sprite.setOrigin(0.5, 0.65);
+      container.add(sprite);
+    } else {
+      const tileKey = `tile_${loc.tileFamily}`;
+      const animKey = `anim_${loc.tileFamily}`;
 
-    if (this.textures.exists(tileKey)) {
-      if (loc.tileFamily === 'crusher') {
-        // Recruiter node: crusher mk3
-        if (!this.anims.exists(animKey)) {
-          this.anims.create({
-            key: animKey,
-            frames: this.anims.generateFrameNumbers(tileKey, { start: 0, end: 31 }),
-            frameRate: 20,
-            repeat: -1,
-          });
+      if (this.textures.exists(tileKey)) {
+        if (loc.tileFamily === 'crusher') {
+          // Recruiter node: crusher mk3
+          if (!this.anims.exists(animKey)) {
+            this.anims.create({
+              key: animKey,
+              frames: this.anims.generateFrameNumbers(tileKey, { start: 0, end: 31 }),
+              frameRate: 20,
+              repeat: -1,
+            });
+          }
+          const sprite = this.add.sprite(0, -6, tileKey);
+          sprite.setScale(0.46);
+          sprite.play(animKey);
+          container.add(sprite);
+        } else if (loc.tileFamily === 'logistics-hub') {
+          // HQ node: logistics-hub mk1
+          if (!this.anims.exists(animKey)) {
+            this.anims.create({
+              key: animKey,
+              frames: this.anims.generateFrameNumbers(tileKey, { start: 0, end: 15 }),
+              frameRate: 16,
+              repeat: -1,
+            });
+          }
+          const sprite = this.add.sprite(0, -6, tileKey);
+          sprite.setScale(0.32);
+          sprite.play(animKey);
+          container.add(sprite);
+        } else if (loc.tileFamily === 'industrial-press') {
+          // Workshop node: industrial-press mk1
+          if (!this.anims.exists(animKey)) {
+            this.anims.create({
+              key: animKey,
+              frames: this.anims.generateFrameNumbers(tileKey, { start: 0, end: 31 }),
+              frameRate: 20,
+              repeat: -1,
+            });
+          }
+          const sprite = this.add.sprite(0, -4, tileKey);
+          sprite.setScale(0.35);
+          sprite.play(animKey);
+          container.add(sprite);
+        } else {
+          // Depot node: pressure-tank mk1 (1 frame)
+          const sprite = this.add.sprite(0, -4, tileKey, 0);
+          sprite.setScale(0.35);
+          container.add(sprite);
         }
-        const sprite = this.add.sprite(0, -6, tileKey);
-        sprite.setScale(0.46);
-        sprite.play(animKey);
-        container.add(sprite);
-      } else if (loc.tileFamily === 'logistics-hub') {
-        // HQ node: logistics-hub mk1
-        if (!this.anims.exists(animKey)) {
-          this.anims.create({
-            key: animKey,
-            frames: this.anims.generateFrameNumbers(tileKey, { start: 0, end: 15 }),
-            frameRate: 16,
-            repeat: -1,
-          });
-        }
-        const sprite = this.add.sprite(0, -6, tileKey);
-        sprite.setScale(0.32);
-        sprite.play(animKey);
-        container.add(sprite);
-      } else if (loc.tileFamily === 'industrial-press') {
-        // Workshop node: industrial-press mk1
-        if (!this.anims.exists(animKey)) {
-          this.anims.create({
-            key: animKey,
-            frames: this.anims.generateFrameNumbers(tileKey, { start: 0, end: 31 }),
-            frameRate: 20,
-            repeat: -1,
-          });
-        }
-        const sprite = this.add.sprite(0, -4, tileKey);
-        sprite.setScale(0.35);
-        sprite.play(animKey);
-        container.add(sprite);
-      } else {
-        // Depot node: pressure-tank mk1 (1 frame)
-        const sprite = this.add.sprite(0, -4, tileKey, 0);
-        sprite.setScale(0.35);
-        container.add(sprite);
+      } else if (this.textures.exists(`icon_${loc.tileFamily}`)) {
+        const icon = this.add.image(0, -4, `icon_${loc.tileFamily}`);
+        icon.setScale(0.7);
+        container.add(icon);
       }
-    } else if (this.textures.exists(`icon_${loc.tileFamily}`)) {
-      const icon = this.add.image(0, -4, `icon_${loc.tileFamily}`);
-      icon.setScale(0.7);
-      container.add(icon);
     }
 
     // Nameplate Text
@@ -1187,24 +1250,25 @@ export class BrokeScene extends Phaser.Scene {
     const gang = snapshot.gangs[loc.gangId];
     const strokeColor = gang ? gang.colorNum : 0x475569;
 
-    baseGfx.fillStyle(0x0f172a, 0.95);
-    baseGfx.fillRoundedRect(-36, -36, 72, 72, 8);
+    // Foundation Base Box / Isometric Ground Footprint
+    baseGfx.fillStyle(0x0a0f1d, 0.72);
+    baseGfx.fillEllipse(0, 16, 76, 38);
 
     const isCandidate = loc.operationalStatus === 'DISCOVERED_CANDIDATE' || loc.gangId === 'NEUTRAL';
     const isUnstaffed = !isCandidate && !loc.assignedHoodId;
 
     if (isSelected) {
       // High-contrast gold halo for selected node
-      baseGfx.lineStyle(4, 0xfacc15, 1.0);
-      baseGfx.strokeRoundedRect(-41, -41, 82, 82, 10);
-      baseGfx.lineStyle(2, 0xffffff, 1.0);
-      baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
+      baseGfx.lineStyle(3.5, 0xfacc15, 1.0);
+      baseGfx.strokeEllipse(0, 16, 84, 42);
+      baseGfx.lineStyle(1.5, 0xffffff, 0.9);
+      baseGfx.strokeEllipse(0, 16, 78, 39);
     } else if (isCandidate) {
       baseGfx.lineStyle(2.5, 0x38bdf8, 0.85);
-      baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
+      baseGfx.strokeEllipse(0, 16, 80, 40);
     } else {
       baseGfx.lineStyle(2, strokeColor, 0.9);
-      baseGfx.strokeRoundedRect(-36, -36, 72, 72, 8);
+      baseGfx.strokeEllipse(0, 16, 78, 39);
     }
 
     if (isCandidate) {
@@ -1431,7 +1495,6 @@ export class BrokeScene extends Phaser.Scene {
       const dy = tgt.y - src.y;
       const posX = src.x + dx * voyage.progress;
       const posY = src.y + dy * voyage.progress;
-      const angle = Math.atan2(dy, dx);
 
       let container = this.vehicleSprites.get(voyage.id);
       if (!container) {
@@ -1442,9 +1505,35 @@ export class BrokeScene extends Phaser.Scene {
 
       container.setPosition(posX, posY);
 
-      const body = container.getByName('vehicleBody') as Phaser.GameObjects.Graphics;
+      const sprite = container.getByName('vehicleSprite') as Phaser.GameObjects.Sprite | null;
+      if (sprite) {
+        // Face forward along trajectory (default pixel art faces left; moving right (dx > 0) -> flipX = true)
+        sprite.setFlipX(dx > 0);
+
+        if (voyage.mode === 'BOAT') {
+          // Gentle sea swell / bobbing
+          sprite.setY(Math.sin(voyage.progress * 35) * 2.5);
+          sprite.setRotation(Math.sin(voyage.progress * 18) * 0.05);
+        }
+      }
+
+      const body = container.getByName('vehicleBody') as Phaser.GameObjects.Graphics | null;
       if (body) {
-        body.setRotation(angle);
+        body.setRotation(Math.atan2(dy, dx));
+      }
+
+      const wakeGfx = container.getByName('vehicleWake') as Phaser.GameObjects.Graphics | null;
+      if (wakeGfx) {
+        wakeGfx.clear();
+        if (voyage.mode === 'BOAT') {
+          // Foam wake behind stern
+          wakeGfx.lineStyle(1.5, 0xbae6fd, 0.55);
+          wakeGfx.strokeEllipse(dx > 0 ? -18 : 18, 8, 22, 8);
+        } else {
+          // Ground shadow underneath van
+          wakeGfx.fillStyle(0x000000, 0.35);
+          wakeGfx.fillEllipse(0, 15, 42, 14);
+        }
       }
 
       const selectGfx = container.getByName('selectGfx') as Phaser.GameObjects.Graphics;
@@ -1452,7 +1541,7 @@ export class BrokeScene extends Phaser.Scene {
         selectGfx.clear();
         if (this.selectedVoyageId === voyage.id) {
           selectGfx.lineStyle(2.5, 0xfacc15, 1.0);
-          selectGfx.strokeCircle(0, 0, 18);
+          selectGfx.strokeEllipse(0, 0, 56, 36);
         }
       }
 
@@ -1470,38 +1559,42 @@ export class BrokeScene extends Phaser.Scene {
     selectGfx.setName('selectGfx');
     container.add(selectGfx);
 
-    const gfx = this.add.graphics();
-    gfx.setName('vehicleBody');
-    const color = gang ? gang.colorNum : 0x38bdf8;
+    // Vehicle ground shadow / sea foam wake
+    const wakeGfx = this.add.graphics();
+    wakeGfx.setName('vehicleWake');
+    container.add(wakeGfx);
 
-    if (voyage.mode === 'BOAT') {
-      gfx.fillStyle(color, 1);
-      gfx.beginPath();
-      gfx.moveTo(12, 0);
-      gfx.lineTo(-8, -6);
-      gfx.lineTo(-12, 0);
-      gfx.lineTo(-8, 6);
-      gfx.closePath();
-      gfx.fillPath();
-      gfx.lineStyle(1.5, 0xffffff, 0.9);
-      gfx.strokePath();
+    const isBoat = voyage.mode === 'BOAT';
+    const textureKey = isBoat ? 'voyage_boat' : 'voyage_van';
 
-      gfx.fillStyle(0x0f172a, 1);
-      gfx.fillRoundedRect(-4, -3, 8, 6, 2);
+    if (this.textures.exists(textureKey)) {
+      const sprite = this.add.sprite(0, 0, textureKey);
+      sprite.setName('vehicleSprite');
+      sprite.setScale(isBoat ? 0.065 : 0.058);
+      sprite.setOrigin(0.5, 0.5);
+      container.add(sprite);
     } else {
-      gfx.fillStyle(color, 1);
-      gfx.fillRoundedRect(-11, -6, 22, 12, 3);
-      gfx.lineStyle(1.5, 0xffffff, 0.9);
-      gfx.strokeRoundedRect(-11, -6, 22, 12, 3);
-
-      gfx.fillStyle(0x0f172a, 1);
-      gfx.fillRect(3, -4, 4, 8);
+      const gfx = this.add.graphics();
+      gfx.setName('vehicleBody');
+      const color = gang ? gang.colorNum : 0x38bdf8;
+      if (isBoat) {
+        gfx.fillStyle(color, 1);
+        gfx.beginPath();
+        gfx.moveTo(12, 0);
+        gfx.lineTo(-8, -6);
+        gfx.lineTo(-12, 0);
+        gfx.lineTo(-8, 6);
+        gfx.closePath();
+        gfx.fillPath();
+      } else {
+        gfx.fillStyle(color, 1);
+        gfx.fillRoundedRect(-11, -6, 22, 12, 3);
+      }
+      container.add(gfx);
     }
 
-    container.add(gfx);
-
     // Passenger count badge - upright, never rotated
-    const badge = this.add.text(0, -15, `×${voyage.passengerIds.length}`, {
+    const badge = this.add.text(0, -24, `×${voyage.passengerIds.length}`, {
       fontFamily: '"JetBrains Mono", Consolas, monospace',
       fontSize: '10px',
       fontStyle: 'bold',
@@ -1515,7 +1608,7 @@ export class BrokeScene extends Phaser.Scene {
     badge.setResolution(2);
     container.add(badge);
 
-    const hit = this.add.zone(0, 0, 32, 32);
+    const hit = this.add.zone(0, 0, 48, 48);
     hit.setInteractive({ cursor: 'pointer' });
     hit.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.leftButtonDown()) {
@@ -1523,7 +1616,14 @@ export class BrokeScene extends Phaser.Scene {
         this.selectedVoyageId = voyage.id;
         this.selectedLocationId = null;
         this.selectedRouteId = null;
+        if (voyage.gangId) {
+          this.selectedGangIds.add(voyage.gangId);
+        }
         this.renderWorld(this.currentSnapshot);
+        const gangState = this.currentSnapshot.gangs[voyage.gangId];
+        if (gangState && this.eventsHandler.onSelectGang) {
+          this.eventsHandler.onSelectGang(gangState, this.currentSnapshot);
+        }
         if (this.eventsHandler.onSelectVoyage) {
           this.eventsHandler.onSelectVoyage(voyage, this.currentSnapshot);
         }
