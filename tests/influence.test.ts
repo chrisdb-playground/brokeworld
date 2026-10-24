@@ -8,8 +8,10 @@ import {
   getRawGangInfluenceInRegion,
   canPurchaseHQ,
   canPurchaseNode,
+  canClaimCandidateNode,
   executePurchaseHQ,
   executePurchaseNode,
+  executeClaimCandidateNode,
 } from '../src/sim/influence';
 
 describe('HQ Influence Zones and Infrastructure Acquisition', () => {
@@ -410,6 +412,95 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
     // 4. In the English Channel water (between y=140 and y=280, e.g. y=210):
     const heatInChannelWater = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 210);
     expect(heatInChannelWater).toBe(0);
+  });
+
+  it('strictly enforces: only possible to buy nodes inside HQ influence zone, unless it is an HQ node', () => {
+    const prng = createPrng(9876);
+    const state = createInitialWorld(prng);
+
+    // Neon Gill only has a Main HQ in Europe (x: 600, y: 430, radius: 220)
+    const neonGang = state.gangs['GANG_NEON_GILL'];
+    neonGang.cash = 25000;
+
+    // 1. Candidate nodes in Africa (where Neon Gill has NO HQ yet)
+    state.locations['CAND_AFR_HQ'] = {
+      id: 'CAND_AFR_HQ',
+      name: 'Tripoli Coastal HQ Site',
+      region: 'AFRICA',
+      x: 600,
+      y: 950,
+      kind: 'HQ',
+      gangId: 'NEUTRAL',
+      operationalStatus: 'DISCOVERED_CANDIDATE',
+      candidateCost: 2200,
+    };
+    state.locations['CAND_AFR_REC'] = {
+      id: 'CAND_AFR_REC',
+      name: 'Tripoli Outpost Recruiter',
+      region: 'AFRICA',
+      x: 650,
+      y: 960, // 51px away from Tripoli HQ
+      kind: 'RECRUITER',
+      gangId: 'NEUTRAL',
+      operationalStatus: 'DISCOVERED_CANDIDATE',
+      candidateCost: 1500,
+    };
+
+    // A. Recruiter in Africa CANNOT be bought before an HQ is established in Africa!
+    const recCheckBeforeHq = canClaimCandidateNode(state, neonGang.id, 'CAND_AFR_REC');
+    expect(recCheckBeforeHq.allowed).toBe(false);
+    expect(recCheckBeforeHq.reason).toContain('No gang HQ in AFRICA');
+
+    expect(() => {
+      executeClaimCandidateNode(state, neonGang.id, 'CAND_AFR_REC', prng);
+    }).toThrow(/Cannot claim node: No gang HQ in AFRICA/);
+
+    // B. HQ in Africa CAN be bought even with 0 initial influence! ("unless it is a hq node")
+    const hqCheck = canClaimCandidateNode(state, neonGang.id, 'CAND_AFR_HQ');
+    expect(hqCheck.allowed).toBe(true);
+
+    const claimedHq = executeClaimCandidateNode(state, neonGang.id, 'CAND_AFR_HQ', prng);
+    expect(claimedHq).toBeDefined();
+    expect(state.locations['CAND_AFR_HQ'].operationalStatus).toBe('ACTIVE');
+    expect(state.locations['CAND_AFR_HQ'].gangId).toBe(neonGang.id);
+
+    // C. Now that Tripoli HQ is claimed and active, the nearby Recruiter is inside the HQ influence zone!
+    const recCheckAfterHq = canClaimCandidateNode(state, neonGang.id, 'CAND_AFR_REC');
+    expect(recCheckAfterHq.allowed).toBe(true);
+    expect(recCheckAfterHq.heat).toBeGreaterThan(0.7);
+
+    const claimedRec = executeClaimCandidateNode(state, neonGang.id, 'CAND_AFR_REC', prng);
+    expect(claimedRec).toBeDefined();
+    expect(state.locations['CAND_AFR_REC'].gangId).toBe(neonGang.id);
+
+    // 2. Candidate node far away outside HQ influence radius (e.g. 500px away from all HQs)
+    state.locations['CAND_EUR_DISTANT_DEPOT'] = {
+      id: 'CAND_EUR_DISTANT_DEPOT',
+      name: 'Distant Alpine Depot Site',
+      region: 'EUROPE',
+      x: 1800, // 1200px away from Neon HQ at x: 600
+      y: 430,
+      kind: 'DEPOT',
+      gangId: 'NEUTRAL',
+      operationalStatus: 'DISCOVERED_CANDIDATE',
+      candidateCost: 1200,
+    };
+
+    const distantCheck = canClaimCandidateNode(state, neonGang.id, 'CAND_EUR_DISTANT_DEPOT');
+    expect(distantCheck.allowed).toBe(false);
+    expect(distantCheck.reason).toContain('outside');
+
+    expect(() => {
+      executeClaimCandidateNode(state, neonGang.id, 'CAND_EUR_DISTANT_DEPOT', prng);
+    }).toThrow(/Cannot claim node: Location is outside/);
+
+    // 3. Direct Placement: HQ node can be placed outside influence zone; non-HQ node cannot
+    const hqDirectPlacement = canPurchaseNode(state, neonGang.id, 'HQ', 'UK', 600, 70);
+    expect(hqDirectPlacement.allowed).toBe(true);
+
+    const depotDirectOutside = canPurchaseNode(state, neonGang.id, 'DEPOT', 'UK', 600, 70);
+    expect(depotDirectOutside.allowed).toBe(false);
+    expect(depotDirectOutside.reason).toContain('No gang HQ in UK');
   });
 });
 

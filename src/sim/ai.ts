@@ -6,7 +6,7 @@ import type {
 } from './types';
 import type { SeededPrng } from './rng';
 import { ensureGangNodesStaffed, hireHood } from './hoods';
-import { executeClaimCandidateNode, executePurchaseBorderRoute } from './influence';
+import { canClaimCandidateNode, executeClaimCandidateNode, executePurchaseBorderRoute } from './influence';
 import {
   bootMigrant,
   assignMigrantToWorkshop,
@@ -145,7 +145,9 @@ export function processGangAI(
       const safetyReserve = routeReserve + 300;
 
       for (const cand of candidates) {
-        const cost = cand.candidateCost || (cand.kind === 'HQ' ? 2200 : (cand.kind === 'WORKSHOP' ? 2000 : (cand.kind === 'DEPOT' ? 1200 : 1500)));
+        const check = canClaimCandidateNode(state, gang.id, cand.id);
+        if (!check.allowed) continue;
+        const cost = check.cost;
         if (gang.cash >= cost + safetyReserve) {
           try {
             executeClaimCandidateNode(state, gang.id, cand.id, prng, events);

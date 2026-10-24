@@ -55,7 +55,7 @@ All infrastructure acquisition in Broke World is strictly gated by the Influence
 | **`PURCHASE_NODE` (RECRUITER)** | $2,500 | `AFRICA` or `EUROPE` only | **Must be inside gang's active heat map** ($\text{heat} \ge 0.05$) | $\ge 70\text{px}$ from existing nodes |
 | **`PURCHASE_NODE` (DEPOT)** | $2,000 | `EUROPE` or `UK` only | **Must be inside gang's active heat map** ($\text{heat} \ge 0.05$) | $\ge 70\text{px}$ from existing nodes |
 | **`PURCHASE_NODE` (WORKSHOP)** | $3,500 | `EUROPE` only | **Must be inside gang's active heat map** ($\text{heat} \ge 0.05$) | $\ge 70\text{px}$ from existing nodes |
-| **`CLAIM_CANDIDATE_NODE`** | Node's candidate cost ($1,200 – $2,200) | Matches node's region | Available once discovered by gang Scout Hood | Pre-cleared plot |
+| **`CLAIM_CANDIDATE_NODE`** | Node's candidate cost ($1,200 – $2,200) | Matches node's region | **Allowed anywhere if HQ node; non-HQ nodes can only be bought inside gang's active HQ influence zone** | Pre-cleared plot |
 
 ---
 

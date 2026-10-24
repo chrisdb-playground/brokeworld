@@ -405,19 +405,102 @@ export function executePurchaseNode(
 }
 
 /**
+ * Validation check for purchasing/claiming an unowned candidate node discovered by scouts.
+ * RULE: "it should only be possible to buy nodes inside hq influence zone - unless it is a hq node."
+ */
+export function canClaimCandidateNode(
+  state: WorldSnapshot,
+  gangId: string,
+  candidateId: string
+): InfluenceCheckResult {
+  const loc = state.locations[candidateId];
+  if (!loc) {
+    return { allowed: false, cost: 0, reason: `Candidate node ${candidateId} not found`, heat: 0 };
+  }
+  const gang = state.gangs[gangId];
+  if (!gang) {
+    return { allowed: false, cost: 0, reason: `Gang ${gangId} not found`, heat: 0 };
+  }
+  if (gang.status !== 'ACTIVE') {
+    return { allowed: false, cost: 0, reason: `${gang.name} is bankrupt`, heat: 0 };
+  }
+
+  const cost = loc.candidateCost || (loc.kind === 'HQ' ? 2200 : (loc.kind === 'WORKSHOP' ? 2000 : (loc.kind === 'DEPOT' ? 1200 : 1500)));
+  if (gang.cash < cost) {
+    return {
+      allowed: false,
+      cost,
+      reason: `Insufficient funds: requires $${cost}, gang has $${gang.cash}`,
+      heat: 0,
+    };
+  }
+
+  // If candidate is already claimed/owned by someone else
+  if (loc.gangId && loc.gangId !== 'NEUTRAL' && loc.operationalStatus !== 'DISCOVERED_CANDIDATE') {
+    return {
+      allowed: false,
+      cost,
+      reason: `Site is already owned by ${state.gangs[loc.gangId]?.name || loc.gangId}`,
+      heat: 0,
+    };
+  }
+
+  // If it is an HQ node: allowed anywhere valid (initiates a new HQ influence zone)
+  if (loc.kind === 'HQ') {
+    return { allowed: true, cost, heat: 1.0 };
+  }
+
+  // Unless it is an HQ node, it can ONLY be bought inside the gang's HQ influence zone!
+  // 1. Must have an HQ in the candidate's region
+  const hasHqInRegion = Object.values(state.locations).some(
+    (l) => l.gangId === gangId && l.kind === 'HQ' && l.region === loc.region
+  );
+  if (!hasHqInRegion) {
+    return {
+      allowed: false,
+      cost,
+      reason: `No gang HQ in ${loc.region}. You must purchase an HQ in ${loc.region} first!`,
+      heat: 0,
+    };
+  }
+
+  // 2. Must be inside the HQ influence zone (effective heat >= 0.05)
+  const heat = getEffectiveInfluenceHeat(state, gangId, loc.x, loc.y);
+  if (heat < 0.05) {
+    return {
+      allowed: false,
+      cost,
+      reason: `Location is outside ${gang.name}'s HQ influence zone (${Math.round(heat * 100)}% heat). Establish or expand an HQ nearby first!`,
+      heat,
+    };
+  }
+
+  return { allowed: true, cost, heat };
+}
+
+/**
  * Claim an unowned candidate node that has been scouted.
+ * RULE: "it should only be possible to buy nodes inside hq influence zone - unless it is a hq node."
  */
 export function executeClaimCandidateNode(
   state: WorldSnapshot,
   gangId: string,
   candidateId: string,
   prng: SeededPrng,
-  events?: SimEvent[]
+  events?: SimEvent[],
+  bypassInfluenceCheck = false
 ): LocationDef {
   const loc = state.locations[candidateId];
   if (!loc) throw new Error(`Candidate node ${candidateId} not found`);
   const gang = state.gangs[gangId];
   if (!gang) throw new Error(`Gang ${gangId} not found`);
+
+  if (!bypassInfluenceCheck) {
+    const check = canClaimCandidateNode(state, gangId, candidateId);
+    if (!check.allowed) {
+      throw new Error(`Cannot claim node: ${check.reason}`);
+    }
+  }
 
   const cost = loc.candidateCost || (loc.kind === 'HQ' ? 2200 : (loc.kind === 'WORKSHOP' ? 2000 : (loc.kind === 'DEPOT' ? 1200 : 1500)));
   if (gang.cash < cost) throw new Error(`Insufficient funds: need $${cost}, has $${gang.cash}`);

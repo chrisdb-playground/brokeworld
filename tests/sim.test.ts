@@ -107,7 +107,7 @@ describe('Broke World Simulation Core', () => {
     const recCand = afrCand.find((n) => n.kind === 'RECRUITER') || afrCand[0];
     recCand.kind = 'RECRUITER';
     recCand.tileFamily = 'crusher';
-    const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', recCand.id, prng);
+    const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', recCand.id, prng, undefined, true);
 
     const eurCand = scoutAreaForNodes(state, 'GANG_NEON_GILL', prng, 'EUROPE');
     const depCand = eurCand.find((n) => n.kind === 'DEPOT') || eurCand[0];
@@ -172,7 +172,7 @@ describe('Broke World Simulation Core', () => {
     const recCand = afrCand.find((n) => n.kind === 'RECRUITER') || afrCand[0];
     recCand.kind = 'RECRUITER';
     recCand.tileFamily = 'crusher';
-    const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', recCand.id, prng);
+    const rec = executeClaimCandidateNode(state, 'GANG_NEON_GILL', recCand.id, prng, undefined, true);
 
     const eurCand = scoutAreaForNodes(state, 'GANG_NEON_GILL', prng, 'EUROPE');
     const depCand = eurCand.find((n) => n.kind === 'DEPOT') || eurCand[0];
@@ -249,7 +249,7 @@ describe('Broke World Simulation Core', () => {
     const recCand = afrCand.find((n) => n.kind === 'RECRUITER') || afrCand[0];
     recCand.kind = 'RECRUITER';
     recCand.tileFamily = 'crusher';
-    const recLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', recCand.id, prng);
+    const recLoc = executeClaimCandidateNode(state, 'GANG_NEON_GILL', recCand.id, prng, undefined, true);
 
     const eurCand = scoutAreaForNodes(state, 'GANG_NEON_GILL', prng, 'EUROPE');
     const depCand = eurCand.find((n) => n.kind === 'DEPOT') || eurCand[0];

@@ -197,6 +197,8 @@ export function handleCommand(
       const candidates = Object.values(state.locations).filter(
         (l) => l.operationalStatus === 'DISCOVERED_CANDIDATE' && l.discoveredByGangId === g.id
       );
+      // Process HQ candidates first so their influence zones cover neighboring candidates
+      candidates.sort((a, b) => (a.kind === 'HQ' ? -1 : (b.kind === 'HQ' ? 1 : 0)));
       let claimed = 0;
       for (const cand of candidates) {
         try {

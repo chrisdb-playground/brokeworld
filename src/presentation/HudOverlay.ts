@@ -10,7 +10,12 @@ import type {
   VoyageState,
   WorldSnapshot,
 } from '../sim/types';
-import { getEffectiveInfluenceHeat, getNodeHeatMultiplier, getHqSynergyInfo } from '../sim/influence';
+import {
+  getEffectiveInfluenceHeat,
+  getNodeHeatMultiplier,
+  getHqSynergyInfo,
+  canClaimCandidateNode,
+} from '../sim/influence';
 import { MigrantRenderer } from './MigrantRenderer';
 import { EventLogView } from './EventLogView';
 import { GodModeView } from './GodModeView';
@@ -19,6 +24,7 @@ export interface HudOverlayCallbacks {
   onSelectGang?: (gangId: string | null) => void;
   onSelectGangs?: (gangIds: Set<string>) => void;
   onFocusLocation?: (locId: string) => void;
+  onSelectRoute?: (routeId: string) => void;
   onToggleInfluence?: () => boolean;
   onStartPlacement?: (data: { gangId: string; kind: LocationKind; cost: number; region?: RegionId }) => void;
   onCancelPlacement?: () => void;
@@ -30,6 +36,7 @@ export class HudOverlay {
   private onSelectGangCallback?: (gangId: string | null) => void;
   private onSelectGangsCallback?: (gangIds: Set<string>) => void;
   private onFocusLocation?: (locId: string) => void;
+  private onSelectRouteCallback?: (routeId: string) => void;
   private onToggleInfluenceCallback?: () => boolean;
   private onStartPlacementCallback?: (data: { gangId: string; kind: LocationKind; cost: number; region?: RegionId }) => void;
   private onCancelPlacementCallback?: () => void;
@@ -61,6 +68,7 @@ export class HudOverlay {
     this.onSelectGangCallback = callbacks.onSelectGang;
     this.onSelectGangsCallback = callbacks.onSelectGangs;
     this.onFocusLocation = callbacks.onFocusLocation;
+    this.onSelectRouteCallback = callbacks.onSelectRoute;
     this.onToggleInfluenceCallback = callbacks.onToggleInfluence;
     this.onStartPlacementCallback = callbacks.onStartPlacement;
     this.onCancelPlacementCallback = callbacks.onCancelPlacement;
@@ -512,6 +520,22 @@ export class HudOverlay {
           if (cid && this.currentSnapshot) {
             const migrant = this.currentSnapshot.migrants[cid];
             if (migrant) this.selectMigrant(migrant);
+          }
+          return;
+        }
+
+        const routeRow = target.closest<HTMLElement>('.route-row-item');
+        if (routeRow) {
+          e.stopPropagation();
+          const rid = routeRow.getAttribute('data-route-id');
+          if (rid && this.currentSnapshot) {
+            const route = this.currentSnapshot.routes[rid];
+            if (route) {
+              this.selectRoute(route);
+              if (this.onSelectRouteCallback) {
+                this.onSelectRouteCallback(rid);
+              }
+            }
           }
           return;
         }
@@ -1018,16 +1042,19 @@ export class HudOverlay {
         <div class="discovery-list" id="insp-gang-candidate-nodes">
           ${candidateNodes.map((c) => {
             const cost = c.candidateCost || 1500;
-            const canAfford = gang.cash >= cost;
+            const check = canClaimCandidateNode(this.currentSnapshot, gang.id, c.id);
             const remaining = c.expiresAtTick !== undefined ? Math.max(0, c.expiresAtTick - this.currentSnapshot.tick) : null;
             const timerBadge = remaining !== null ? `<span style="color:#f59e0b;font-weight:bold;margin-left:4px;">⏳ ${remaining}t</span>` : '';
             return `
               <div class="discovery-item">
                 <div class="discovery-info">
                   <div class="discovery-title">📍 ${c.name} (${c.region})</div>
-                  <div class="discovery-sub">${c.kind} • Acquisition: $${cost}${timerBadge}</div>
+                  <div class="discovery-sub">
+                    ${c.kind} • Acquisition: $${cost}${timerBadge}
+                    ${!check.allowed && c.kind !== 'HQ' && gang.cash >= cost ? `<span class="tag-outside-zone" style="color:#f87171;font-weight:bold;margin-left:6px;">⛔ Outside HQ Zone</span>` : ''}
+                  </div>
                 </div>
-                <button class="btn-claim-candidate" data-gang-id="${gang.id}" data-candidate-id="${c.id}" ${canAfford ? '' : 'disabled'}>
+                <button class="btn-claim-candidate" data-gang-id="${gang.id}" data-candidate-id="${c.id}" ${check.allowed ? '' : 'disabled'} title="${check.allowed ? `Claim ${c.name}` : check.reason}">
                   Claim ($${cost})
                 </button>
               </div>
@@ -1153,11 +1180,42 @@ export class HudOverlay {
       );
 
       const outgoingRoutes = Object.values(this.currentSnapshot.routes).filter(
-        (r) => r.sourceId === loc.id && r.status === 'ACTIVE'
+        (r) => r.sourceId === loc.id && r.status !== 'CLOSED'
       );
       const incomingRoutes = Object.values(this.currentSnapshot.routes).filter(
-        (r) => r.targetId === loc.id && r.status === 'ACTIVE'
+        (r) => r.targetId === loc.id && r.status !== 'CLOSED'
       );
+      const allAttachedRoutes = [...outgoingRoutes, ...incomingRoutes];
+
+      // Attached Candidate Sea Corridors (discovered by scouts)
+      const attachedCandidateRoutes: Array<{
+        route: CandidateRouteOpportunity;
+        gang: GangState;
+        isOutgoing: boolean;
+        otherLoc: LocationDef | undefined;
+      }> = [];
+      for (const g of Object.values(this.currentSnapshot.gangs)) {
+        if (g.status === 'ACTIVE' && g.discoveredCandidateRoutes) {
+          for (const cr of g.discoveredCandidateRoutes) {
+            if (cr.sourceId === loc.id) {
+              attachedCandidateRoutes.push({
+                route: cr,
+                gang: g,
+                isOutgoing: true,
+                otherLoc: this.currentSnapshot.locations[cr.targetId],
+              });
+            } else if (cr.targetId === loc.id) {
+              attachedCandidateRoutes.push({
+                route: cr,
+                gang: g,
+                isOutgoing: false,
+                otherLoc: this.currentSnapshot.locations[cr.sourceId],
+              });
+            }
+          }
+        }
+      }
+
       const gang = (loc.gangId && loc.gangId !== 'NEUTRAL') ? this.currentSnapshot.gangs[loc.gangId] : null;
       const gangHoods = gang
         ? Object.values(this.currentSnapshot.hoods || {}).filter((h) => h.gangId === gang.id)
@@ -1172,7 +1230,11 @@ export class HudOverlay {
       const candidateCost = loc.candidateCost || 1500;
       const discoveringGangs = isCandidate
         ? Object.values(this.currentSnapshot.gangs).filter(
-            (g) => g.status === 'ACTIVE' && (g.discoveredNodeIds || []).includes(loc.id)
+            (g) => g.status === 'ACTIVE' && (
+              (g.discoveredNodeIds || []).includes(loc.id) ||
+              loc.discoveredByGangId === g.id ||
+              this.selectedGangIds.has(g.id)
+            )
           )
         : [];
 
@@ -1227,6 +1289,120 @@ export class HudOverlay {
           ${(loc.kind === 'WORKSHOP' || loc.kind === 'CRIMINAL_ENTERPRISE') ? `
             <div class="insp-row"><span class="lbl">ASSIGNED WORKERS</span><span class="val text-amber" id="insp-loc-ws">${stationedWorkers.length}</span></div>
             <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val" id="insp-loc-in">${incomingRoutes.length}</span></div>
+          ` : ''}
+        </div>
+
+        <div class="insp-subhead" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>ATTACHED ROUTES (${allAttachedRoutes.length})</span>
+          ${allAttachedRoutes.length > 0 ? '<span style="font-size: 10px; color: var(--text-dim); font-weight: normal; text-transform: none;">Click route to inspect</span>' : ''}
+        </div>
+        <div class="attached-routes-list" id="insp-attached-routes">
+          ${allAttachedRoutes.map((r) => {
+            const isOutgoing = r.sourceId === loc.id;
+            const otherLocId = isOutgoing ? r.targetId : r.sourceId;
+            const otherLoc = this.currentSnapshot.locations[otherLocId];
+            const otherName = otherLoc ? otherLoc.name : otherLocId;
+            const otherRegion = otherLoc ? otherLoc.region : '';
+            const rGang = this.currentSnapshot.gangs[r.gangId];
+            const skipper = r.assignedSkipperHoodId ? this.currentSnapshot.hoods[r.assignedSkipperHoodId] : null;
+            const isBoat = r.mode === 'BOAT';
+            const modeIcon = isBoat ? '🚤' : '🚐';
+            const modeName = isBoat ? (r.isCrossBorder ? 'Sea Corridor' : 'Boat Route') : 'Overland Van';
+
+            return `
+              <div class="attached-route-card route-row-item" data-route-id="${r.id}" style="border-left: 3px solid ${rGang?.color || '#38bdf8'}; cursor: pointer;">
+                <div class="attached-route-top">
+                  <div class="route-dir-col">
+                    <span class="route-dir-badge ${isOutgoing ? 'outgoing' : 'incoming'}">
+                      ${isOutgoing ? '↗ OUTGOING' : '↘ INCOMING'}
+                    </span>
+                    <span class="route-mode-badge">${modeIcon} ${modeName}</span>
+                  </div>
+                  <div class="route-gang-tag" style="color: ${rGang?.color || '#38bdf8'};">
+                    ${rGang ? `${rGang.emblem} ${rGang.name}` : r.gangId}
+                  </div>
+                </div>
+
+                <div class="attached-route-path">
+                  <span class="route-endpoint this-node">${loc.name}</span>
+                  <span class="route-arrow">${isOutgoing ? '➔' : '⬅'}</span>
+                  <span class="route-endpoint target-node">${otherName} <small class="target-region-pill">${otherRegion}</small></span>
+                </div>
+
+                <div class="attached-route-specs-grid">
+                  <div class="route-spec-item">
+                    <span class="spec-k">FARE</span>
+                    <span class="spec-v text-green">$${r.price}</span>
+                  </div>
+                  <div class="route-spec-item">
+                    <span class="spec-k">CAPACITY</span>
+                    <span class="spec-v">${r.capacity}</span>
+                  </div>
+                  <div class="route-spec-item">
+                    <span class="spec-k">DURATION</span>
+                    <span class="spec-v">${r.durationTicks}t</span>
+                  </div>
+                  <div class="route-spec-item">
+                    <span class="spec-k">RELIABILITY</span>
+                    <span class="spec-v" id="route-${r.id}-rel">${Math.round(r.reliability * 100)}%</span>
+                  </div>
+                  <div class="route-spec-item">
+                    <span class="spec-k">ACTIVE RUNS</span>
+                    <span class="spec-v highlight" id="route-${r.id}-active">${r.activeVoyageCount}</span>
+                  </div>
+                  <div class="route-spec-item">
+                    <span class="spec-k">DELIVERED</span>
+                    <span class="spec-v" id="route-${r.id}-carried">${r.totalPassengers}</span>
+                  </div>
+                  <div class="route-spec-item">
+                    <span class="spec-k">REVENUE</span>
+                    <span class="spec-v text-green" id="route-${r.id}-rev">$${r.revenue}</span>
+                  </div>
+                  <div class="route-spec-item">
+                    <span class="spec-k">SKIPPER</span>
+                    <span class="spec-v" id="route-${r.id}-skipper">${skipper ? skipper.name : '<span style="color:#ef4444;">Unstaffed</span>'}</span>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+
+          ${attachedCandidateRoutes.map(({ route: cr, gang: crGang, isOutgoing, otherLoc }) => {
+            const cost = cr.charterCost || 1000;
+            const canAfford = crGang.cash >= cost;
+            const remaining = cr.expiresAtTick !== undefined ? Math.max(0, cr.expiresAtTick - this.currentSnapshot.tick) : null;
+            const timerBadge = remaining !== null ? `<span style="color:#f59e0b;font-weight:bold;margin-left:4px;">⏳ ${remaining}t</span>` : '';
+            return `
+              <div class="attached-route-card candidate-route-card" style="border-left: 3px dashed ${crGang.color};">
+                <div class="attached-route-top">
+                  <div class="route-dir-col">
+                    <span class="route-dir-badge candidate">
+                      🔍 CANDIDATE SEA CORRIDOR
+                    </span>
+                    ${timerBadge}
+                  </div>
+                  <div class="route-gang-tag" style="color: ${crGang.color};">
+                    ${crGang.emblem} ${crGang.name}
+                  </div>
+                </div>
+                <div class="attached-route-path">
+                  <span class="route-endpoint this-node">${loc.name}</span>
+                  <span class="route-arrow">${isOutgoing ? '➔' : '⬅'}</span>
+                  <span class="route-endpoint target-node">${otherLoc ? otherLoc.name : (isOutgoing ? cr.targetId : cr.sourceId)} <small class="target-region-pill">${otherLoc ? otherLoc.region : ''}</small></span>
+                </div>
+                <div class="candidate-route-actions" style="margin-top: 6px; display: flex; justify-content: flex-end;">
+                  <button class="btn-charter-route" data-gang-id="${crGang.id}" data-src-id="${cr.sourceId}" data-tgt-id="${cr.targetId}" ${canAfford ? '' : 'disabled'}>
+                    Charter Sea Corridor ($${cost})
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+
+          ${allAttachedRoutes.length === 0 && attachedCandidateRoutes.length === 0 ? `
+            <div class="attached-routes-empty">
+              No transport routes currently connected to this node. Establish border routes from Recruiters to Depots to connect services.
+            </div>
           ` : ''}
         </div>
 
@@ -1405,11 +1581,19 @@ export class HudOverlay {
           <div class="insp-subhead">CLAIM CANDIDATE SITE ($${candidateCost})</div>
           <div class="candidate-claim-box">
             ${discoveringGangs.map((g) => {
+              const check = canClaimCandidateNode(this.currentSnapshot, g.id, loc.id);
               const canAfford = g.cash >= candidateCost;
               return `
-                <button class="btn-claim-candidate" data-gang-id="${g.id}" data-candidate-id="${loc.id}" ${canAfford ? '' : 'disabled'} style="border-left: 3px solid ${g.color};">
-                  Claim for <b>${g.name}</b> ($${candidateCost})
-                </button>
+                <div class="candidate-claim-row" style="margin-bottom: 6px;">
+                  <button class="btn-claim-candidate" data-gang-id="${g.id}" data-candidate-id="${loc.id}" ${check.allowed ? '' : 'disabled'} style="border-left: 3px solid ${g.color}; width: 100%;" title="${check.allowed ? `Claim ${loc.name} for ${g.name}` : check.reason}">
+                    Claim for <b>${g.name}</b> ($${candidateCost})
+                  </button>
+                  ${!check.allowed ? `
+                    <div class="candidate-claim-blocked-hint">
+                      ${!canAfford ? '⚠️ Insufficient Funds' : `⛔ ${check.reason}`}
+                    </div>
+                  ` : ''}
+                </div>
               `;
             }).join('')}
             ${discoveringGangs.length === 0 ? '<div class="candidate-notice">Not yet scouted by any active gang syndicate.</div>' : ''}
@@ -1587,9 +1771,12 @@ export class HudOverlay {
 
       content.querySelectorAll<HTMLButtonElement>('.btn-claim-candidate').forEach((btn) => {
         const candId = btn.getAttribute('data-candidate-id');
-        const cLoc = candId ? this.currentSnapshot.locations[candId] : null;
-        const cost = cLoc?.candidateCost || 1500;
-        btn.disabled = gang.cash < cost;
+        const gId = btn.getAttribute('data-gang-id') || gang.id;
+        if (candId && gId) {
+          const check = canClaimCandidateNode(this.currentSnapshot, gId, candId);
+          btn.disabled = !check.allowed;
+          btn.title = check.allowed ? 'Claim candidate site' : check.reason;
+        }
       });
 
       content.querySelectorAll<HTMLButtonElement>('.btn-charter-route').forEach((btn) => {
@@ -1642,6 +1829,33 @@ export class HudOverlay {
       if (outEl) outEl.textContent = `${outgoingRoutes.length}`;
       const inEl = content.querySelector('#insp-loc-in');
       if (inEl) inEl.textContent = `${incomingRoutes.length}`;
+
+      const allRoutes = [...outgoingRoutes, ...incomingRoutes];
+      allRoutes.forEach((r) => {
+        const relEl = content.querySelector(`#route-${r.id}-rel`);
+        if (relEl) relEl.textContent = `${Math.round(r.reliability * 100)}%`;
+        const actEl = content.querySelector(`#route-${r.id}-active`);
+        if (actEl) actEl.textContent = `${r.activeVoyageCount}`;
+        const carEl = content.querySelector(`#route-${r.id}-carried`);
+        if (carEl) carEl.textContent = `${r.totalPassengers}`;
+        const revEl = content.querySelector(`#route-${r.id}-rev`);
+        if (revEl) revEl.textContent = `$${r.revenue}`;
+        const skipperEl = content.querySelector(`#route-${r.id}-skipper`);
+        if (skipperEl) {
+          const skipper = r.assignedSkipperHoodId ? this.currentSnapshot.hoods[r.assignedSkipperHoodId] : null;
+          skipperEl.innerHTML = skipper ? skipper.name : '<span style="color:#ef4444;">Unstaffed</span>';
+        }
+      });
+
+      content.querySelectorAll<HTMLButtonElement>('.btn-claim-candidate').forEach((btn) => {
+        const candId = btn.getAttribute('data-candidate-id');
+        const gId = btn.getAttribute('data-gang-id');
+        if (candId && gId) {
+          const check = canClaimCandidateNode(this.currentSnapshot, gId, candId);
+          btn.disabled = !check.allowed;
+          btn.title = check.allowed ? 'Claim candidate site' : check.reason;
+        }
+      });
 
 
     } else if (this.selectedEntityType === 'ROUTE') {

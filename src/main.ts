@@ -40,6 +40,7 @@ game.events.once('ready', () => {
   hudOverlay = new HudOverlay(engine, scheduler, {
     onSelectGangs: (gangIds) => scene.setSelectedGangs(gangIds),
     onFocusLocation: (locId) => scene.focusLocation(locId),
+    onSelectRoute: (routeId) => scene.selectRoute(routeId),
     onToggleInfluence: () => scene.toggleInfluence(),
     onStartPlacement: (data) => scene.startPlacementMode(data),
     onCancelPlacement: () => scene.cancelPlacementMode(),

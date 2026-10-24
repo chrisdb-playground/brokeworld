@@ -802,6 +802,23 @@ export class BrokeScene extends Phaser.Scene {
     }
   }
 
+  selectRoute(routeId: string) {
+    this.selectedRouteId = routeId;
+    this.selectedLocationId = null;
+    this.selectedVoyageId = null;
+    if (this.currentSnapshot) {
+      const route = this.currentSnapshot.routes[routeId];
+      if (route) {
+        const src = this.currentSnapshot.locations[route.sourceId];
+        const tgt = this.currentSnapshot.locations[route.targetId];
+        if (src && tgt) {
+          this.cameras.main.pan((src.x + tgt.x) / 2, (src.y + tgt.y) / 2, 500, 'Cubic.easeOut');
+        }
+      }
+      this.renderWorld(this.currentSnapshot);
+    }
+  }
+
   // ==================== RENDERING PIPELINE ====================
   renderWorld(snapshot: WorldSnapshot) {
     if (!this.isSceneReady || !this.bgGfx || !this.influenceGfxUk || !this.nodesContainer) {
