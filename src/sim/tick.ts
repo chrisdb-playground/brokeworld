@@ -50,11 +50,11 @@ export function tickWorld(
   // 9. Voyage Scheduling & Progress (cross-border and intra-region)
   processVoyages(state, prng, newEvents);
 
-  // 10. Event Log Maintenance (keep recent 100 events, no memory leaks)
+  // 10. Event Log Maintenance (keep recent 500 events for full-screen event log)
   if (newEvents.length > 0) {
     state.events.unshift(...newEvents);
-    if (state.events.length > 100) {
-      state.events.length = 100;
+    if (state.events.length > 500) {
+      state.events.length = 500;
     }
   }
 

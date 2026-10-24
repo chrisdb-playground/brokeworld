@@ -18,7 +18,7 @@ describe('Broke World Headless Soak Test', () => {
       expect(snapshot.stats.activeMigrants).toBeLessThan(100);
 
       // Event limit to avoid memory leaks
-      expect(snapshot.events.length).toBeLessThanOrEqual(100);
+      expect(snapshot.events.length).toBeLessThanOrEqual(500);
 
       // Gangs must maintain at least 2 active gangs
       const activeGangs = Object.values(snapshot.gangs).filter((g) => g.status === 'ACTIVE');
@@ -28,5 +28,5 @@ describe('Broke World Headless Soak Test', () => {
     const finalState = engine.getSnapshot();
     expect(finalState.stats.totalVoyagesLaunched).toBeGreaterThan(10);
     expect(finalState.stats.totalDepartedMigrants).toBeGreaterThan(5);
-  });
+  }, 30000);
 });

@@ -19,7 +19,7 @@ export function processGangAI(
   }
 
   for (const gang of Object.values(state.gangs)) {
-    if (gang.status !== 'ACTIVE') continue;
+    if (gang.status !== 'ACTIVE' || gang.isAiDisabled) continue;
 
     // 1. Staff any unmanaged gang nodes or border routes with Hoods
     ensureGangNodesStaffed(state, gang, prng, events);

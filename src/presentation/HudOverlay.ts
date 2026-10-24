@@ -12,6 +12,8 @@ import type {
 } from '../sim/types';
 import { getEffectiveInfluenceHeat, getNodeHeatMultiplier, getHqSynergyInfo } from '../sim/influence';
 import { MigrantRenderer } from './MigrantRenderer';
+import { EventLogView } from './EventLogView';
+import { GodModeView } from './GodModeView';
 
 export interface HudOverlayCallbacks {
   onSelectGang?: (gangId: string | null) => void;
@@ -40,6 +42,10 @@ export class HudOverlay {
   private lastInspectorKey: string | null = null;
   private lastEventCount = -1;
   private lastEventFirstTick = -1;
+
+  private activeTab: 'world' | 'events' | 'god' = 'world';
+  private eventLogView!: EventLogView;
+  private godModeView!: GodModeView;
 
   // Persistent DOM cache for gang cards to prevent recreating DOM on each sim tick
   private gangCardElements: Map<string, HTMLElement> = new Map();
@@ -182,22 +188,42 @@ export class HudOverlay {
           </div>
         </div>
 
+        <!-- NAVIGATION TABS -->
+        <nav class="hud-tabs">
+          <button class="hud-tab active" data-tab="world" title="World Map Operations (Key M)">
+            <span class="tab-icon">🗺️</span>
+            <span class="tab-label">WORLD MAP</span>
+          </button>
+          <button class="hud-tab" data-tab="events" title="Full Operations Event Chronicle (Key L)">
+            <span class="tab-icon">📜</span>
+            <span class="tab-label">EVENT LOG</span>
+            <span id="tab-events-badge" class="tab-badge" style="display: none;">0</span>
+          </button>
+          <button class="hud-tab" data-tab="god" title="Divine Intervention & Syndicate Puppeteering (Key G)">
+            <span class="tab-icon">👑</span>
+            <span class="tab-label">GOD MODE</span>
+          </button>
+        </nav>
+
         <!-- SIM CLOCK & CONTROLS (Ticks only, no day unit) -->
         <div class="time-controls">
           <div class="tick-chip">
             <span class="tick-label">TICK</span>
             <span id="hud-tick" class="tick-val">0</span>
           </div>
+          <div id="hud-pause-indicator" class="pause-chip" style="display: none;">
+            <span>⏸ PAUSED</span>
+          </div>
           <div class="seed-chip" title="Active PRNG Seed">
             <span class="seed-label">SEED</span>
             <span id="hud-seed" class="seed-val">...</span>
           </div>
           <div class="speed-btns">
-            <button class="spd-btn" data-speed="0">⏸</button>
-            <button class="spd-btn active" data-speed="1">1×</button>
-            <button class="spd-btn" data-speed="5">5×</button>
-            <button class="spd-btn" data-speed="20">20×</button>
-            <button class="spd-btn" id="btn-step">⏯ Step</button>
+            <button class="spd-btn" data-speed="0" title="Pause / Unpause (Space)">⏸</button>
+            <button class="spd-btn active" data-speed="1" title="Speed 1x (Key 1)">1×</button>
+            <button class="spd-btn" data-speed="5" title="Speed 5x (Key 2)">5×</button>
+            <button class="spd-btn" data-speed="20" title="Speed 20x (Key 3)">20×</button>
+            <button class="spd-btn" id="btn-step" title="Step 1 Tick (Key S)">⏯ Step</button>
             <button class="spd-btn" id="btn-reset" title="Reset Simulation with Same Seed (R)">🔄 Reset</button>
             <button class="spd-btn" id="btn-random-seed" title="Roll New Random Seed & Restart">🎲 Random Seed</button>
             <button class="spd-btn active" id="btn-toggle-influence" title="Toggle HQ Influence Zones (I)">🔥 Influence</button>
@@ -245,7 +271,10 @@ export class HudOverlay {
         </div>
 
         <div class="panel-section flex-grow">
-          <div class="section-title">EVENT LOG</div>
+          <div class="section-title-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <div class="section-title" style="margin-bottom: 0;">EVENT LOG</div>
+            <button id="btn-open-event-log" class="btn-link-action" style="background: none; border: none; color: #38bdf8; font-family: 'JetBrains Mono', monospace; font-size: 10px; cursor: pointer; text-decoration: underline;" title="Open Full-Screen Event Log (L)">↗ Full Screen</button>
+          </div>
           <div id="event-feed" class="event-feed-list"></div>
         </div>
       </div>
@@ -260,36 +289,56 @@ export class HudOverlay {
       </div>
     `;
 
+    // Instantiate full-screen tab views
+    this.eventLogView = new EventLogView(root, (unread) => this.updateEventBadge(unread));
+    this.godModeView = new GodModeView(root, this.port);
+
+    // Hook up tab navigation buttons
+    root.querySelectorAll<HTMLButtonElement>('.hud-tab[data-tab]').forEach((tabBtn) => {
+      tabBtn.addEventListener('click', () => {
+        const tab = tabBtn.getAttribute('data-tab') as 'world' | 'events' | 'god';
+        this.setActiveTab(tab);
+        tabBtn.blur();
+      });
+    });
+
+    root.querySelector('#btn-open-event-log')?.addEventListener('click', () => {
+      this.setActiveTab('events');
+    });
+
     // Hook up time control buttons
     const spdBtns = root.querySelectorAll<HTMLButtonElement>('.spd-btn[data-speed]');
     spdBtns.forEach((btn) => {
       btn.addEventListener('click', () => {
-        spdBtns.forEach((b) => b.classList.remove('active'));
-        btn.classList.add('active');
         const spd = parseFloat(btn.getAttribute('data-speed') || '1');
-        this.scheduler.setTimeScale(spd);
+        if (spd === 0) {
+          this.togglePause();
+        } else {
+          this.scheduler.setTimeScale(spd);
+          this.updateSpeedUI();
+        }
+        btn.blur();
       });
     });
 
-    root.querySelector('#btn-step')?.addEventListener('click', () => {
+    root.querySelector('#btn-step')?.addEventListener('click', (e) => {
       this.scheduler.step();
+      (e.currentTarget as HTMLElement)?.blur();
     });
 
-    root.querySelector('#btn-reset')?.addEventListener('click', () => {
+    root.querySelector('#btn-reset')?.addEventListener('click', (e) => {
       this.scheduler.reset();
       this.deselectEntity();
-      spdBtns.forEach((b) => {
-        b.classList.toggle('active', b.getAttribute('data-speed') === '1');
-      });
+      this.updateSpeedUI();
+      (e.currentTarget as HTMLElement)?.blur();
     });
 
-    root.querySelector('#btn-random-seed')?.addEventListener('click', () => {
+    root.querySelector('#btn-random-seed')?.addEventListener('click', (e) => {
       const newSeed = Math.floor(Math.random() * 900000) + 100000;
       this.scheduler.reset(newSeed);
       this.deselectEntity();
-      spdBtns.forEach((b) => {
-        b.classList.toggle('active', b.getAttribute('data-speed') === '1');
-      });
+      this.updateSpeedUI();
+      (e.currentTarget as HTMLElement)?.blur();
     });
 
     const toggleInfluenceAction = () => {
@@ -412,9 +461,127 @@ export class HudOverlay {
         }
       });
     }
+
+    this.setupKeyboardShortcuts();
+    this.updateSpeedUI();
+  }
+
+  public updateSpeedUI(): void {
+    const isPaused = this.scheduler.isPaused();
+    const currentSpeed = this.scheduler.getTimeScale();
+    const spdBtns = document.querySelectorAll<HTMLButtonElement>('.spd-btn[data-speed]');
+    spdBtns.forEach((b) => {
+      const spdVal = parseFloat(b.getAttribute('data-speed') || '1');
+      if (isPaused) {
+        b.classList.toggle('active', spdVal === 0);
+      } else {
+        b.classList.toggle('active', spdVal === currentSpeed);
+      }
+    });
+
+    const pauseIndicator = document.getElementById('hud-pause-indicator');
+    if (pauseIndicator) {
+      pauseIndicator.style.display = isPaused ? 'inline-flex' : 'none';
+    }
+  }
+
+  public togglePause(): void {
+    this.scheduler.togglePause();
+    this.updateSpeedUI();
+  }
+
+  public setActiveTab(tab: 'world' | 'events' | 'god'): void {
+    this.activeTab = tab;
+
+    const tabBtns = document.querySelectorAll<HTMLButtonElement>('.hud-tab[data-tab]');
+    tabBtns.forEach((b) => b.classList.toggle('active', b.getAttribute('data-tab') === tab));
+
+    const leftPanel = document.querySelector<HTMLElement>('.hud-left-panel');
+    const inspector = document.querySelector<HTMLElement>('#hud-inspector');
+
+    if (tab === 'world') {
+      this.eventLogView.hide();
+      this.godModeView.hide();
+      if (leftPanel) leftPanel.style.display = 'flex';
+      if (inspector && this.selectedEntityType) {
+        inspector.classList.remove('collapsed');
+      }
+    } else if (tab === 'events') {
+      if (leftPanel) leftPanel.style.display = 'none';
+      if (inspector) inspector.classList.add('collapsed');
+      this.godModeView.hide();
+      this.eventLogView.show();
+    } else if (tab === 'god') {
+      if (leftPanel) leftPanel.style.display = 'none';
+      if (inspector) inspector.classList.add('collapsed');
+      this.eventLogView.hide();
+      this.godModeView.show();
+    }
+  }
+
+  private updateEventBadge(unread: number): void {
+    const badge = document.getElementById('tab-events-badge');
+    if (badge) {
+      if (unread > 0) {
+        badge.textContent = `${unread > 99 ? '99+' : unread}`;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  }
+
+  private setupKeyboardShortcuts(): void {
+    window.addEventListener(
+      'keydown',
+      (e: KeyboardEvent) => {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+          return;
+        }
+
+        if (e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (document.activeElement && document.activeElement !== document.body) {
+            (document.activeElement as HTMLElement).blur();
+          }
+          this.togglePause();
+          return;
+        }
+
+        if (e.key === '1') {
+          this.scheduler.setTimeScale(1);
+          this.updateSpeedUI();
+        } else if (e.key === '2') {
+          this.scheduler.setTimeScale(5);
+          this.updateSpeedUI();
+        } else if (e.key === '3') {
+          this.scheduler.setTimeScale(20);
+          this.updateSpeedUI();
+        } else if (e.key === 's' || e.key === 'S') {
+          this.scheduler.step();
+        } else if (e.key === 'm' || e.key === 'M') {
+          this.setActiveTab('world');
+        } else if (e.key === 'l' || e.key === 'L') {
+          this.setActiveTab('events');
+        } else if (e.key === 'g' || e.key === 'G') {
+          this.setActiveTab('god');
+        } else if (e.key === 'Tab') {
+          e.preventDefault();
+          const next = this.activeTab === 'world' ? 'events' : this.activeTab === 'events' ? 'god' : 'world';
+          this.setActiveTab(next);
+        }
+      },
+      { capture: true }
+    );
   }
 
   private update(snapshot: WorldSnapshot) {
+    // Propagate to full-screen tab views
+    this.eventLogView.update(snapshot);
+    this.godModeView.update(snapshot);
+
     // Top Bar Stats (Ticks only)
     const tickEl = document.getElementById('hud-tick');
     if (tickEl) tickEl.textContent = `${snapshot.tick}`;

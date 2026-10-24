@@ -1,11 +1,12 @@
-import type { SimCommand, WorldSnapshot } from '../sim/types';
+import type { SimCommand, SimEvent, WorldSnapshot } from '../sim/types';
 import { createPrng, type SeededPrng } from '../sim/rng';
 import { createInitialWorld } from '../sim/createWorld';
 import { tickWorld } from '../sim/tick';
+import { handleCommand } from '../sim/commands';
 
 export interface GamePort {
   getSnapshot(): WorldSnapshot;
-  dispatch(command: SimCommand): void;
+  dispatch(command: SimCommand, immediate?: boolean): void;
   advance(ticks?: number): WorldSnapshot;
   subscribe(listener: (snapshot: WorldSnapshot) => void): () => void;
   reset(seed?: number): void;
@@ -26,8 +27,20 @@ export class LocalGameEngine implements GamePort {
     return this.state;
   }
 
-  dispatch(command: SimCommand): void {
-    this.pendingCommands.push(command);
+  dispatch(command: SimCommand, immediate: boolean = false): void {
+    if (immediate) {
+      const newEvts: SimEvent[] = [];
+      handleCommand(this.state, command, newEvts, this.prng);
+      if (newEvts.length > 0) {
+        this.state.events.unshift(...newEvts);
+        if (this.state.events.length > 500) {
+          this.state.events.length = 500;
+        }
+      }
+      this.notify();
+    } else {
+      this.pendingCommands.push(command);
+    }
   }
 
   advance(ticks = 1): WorldSnapshot {

@@ -343,6 +343,8 @@ export class BrokeScene extends Phaser.Scene {
       spdBtns.forEach((b) => {
         b.classList.toggle('active', b.getAttribute('data-speed') === '1');
       });
+      const pauseIndicator = document.getElementById('hud-pause-indicator');
+      if (pauseIndicator) pauseIndicator.style.display = 'none';
     });
 
     // Subscribe to simulation updates

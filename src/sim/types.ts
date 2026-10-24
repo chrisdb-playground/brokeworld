@@ -71,6 +71,7 @@ export interface GangState {
   discoveredRouteIds?: string[]; // Candidate border routes discovered by scouts
   discoveredCandidateRoutes?: CandidateRouteOpportunity[]; // Structured candidate routes with expiration
   wageBillTotal?: number; // Live calculated periodic payroll
+  isAiDisabled?: boolean; // God mode override to pause autonomous AI decisions
   stats: {
     recruitsTotal: number;
     voyagesLaunched: number;
@@ -204,7 +205,8 @@ export interface SimEvent {
     | 'ROUTE_EXPIRED'
     | 'AREA_SCOUTED'
     | 'ROUTE_SEARCHED'
-    | 'PAYROLL_PAID';
+    | 'PAYROLL_PAID'
+    | 'GOD_INTERVENTION';
   description: string;
   importance: 'LOW' | 'MEDIUM' | 'HIGH';
   gangId?: string;
