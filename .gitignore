@@ -36,6 +36,5 @@ Thumbs.db
 *.local
 
 # Imported asset pack assets (imported on npm install)
+public/*.png
 public/graphics/
-public/sandy.png
-public/water-tile.png

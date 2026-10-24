@@ -7,14 +7,14 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const publicDir = path.join(rootDir, 'public');
 
-// Candidate asset locations:
-// 1. node_modules/brokeworld-asset-pack1/assets
-// 2. node_modules/brokeworld-asset-pack1
-// 3. ../brokeworld-asset-pack1/assets (local sibling repository fallback)
+// Candidate asset locations (prioritize local sibling repository during playground development):
+// 1. ../brokeworld-asset-pack1/assets (local sibling repository)
+// 2. node_modules/brokeworld-asset-pack1/assets
+// 3. node_modules/brokeworld-asset-pack1
 const candidatePaths = [
+  path.resolve(rootDir, '..', 'brokeworld-asset-pack1', 'assets'),
   path.join(rootDir, 'node_modules', 'brokeworld-asset-pack1', 'assets'),
   path.join(rootDir, 'node_modules', 'brokeworld-asset-pack1'),
-  path.resolve(rootDir, '..', 'brokeworld-asset-pack1', 'assets'),
 ];
 
 let sourceDir = null;
@@ -44,13 +44,11 @@ if (!sourceDir) {
 console.log(`[brokeworld] Importing assets from ${sourceDir} -> ${publicDir}...`);
 fs.mkdirSync(publicDir, { recursive: true });
 
-const itemsToCopy = ['sandy.png', 'water-tile.png', 'graphics'];
-for (const item of itemsToCopy) {
+const assetItems = fs.readdirSync(sourceDir);
+for (const item of assetItems) {
   const srcItem = path.join(sourceDir, item);
   const dstItem = path.join(publicDir, item);
-  if (fs.existsSync(srcItem)) {
-    fs.cpSync(srcItem, dstItem, { recursive: true, force: true });
-  }
+  fs.cpSync(srcItem, dstItem, { recursive: true, force: true });
 }
 
-console.log('[brokeworld] Assets successfully imported!');
+console.log(`[brokeworld] Imported ${assetItems.length} assets successfully!`);

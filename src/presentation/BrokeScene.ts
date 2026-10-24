@@ -157,6 +157,9 @@ export class BrokeScene extends Phaser.Scene {
 
   // Graphics layers
   private floorTile!: Phaser.GameObjects.TileSprite;
+  private ukFloorTile!: Phaser.GameObjects.TileSprite;
+  private europeFloorTile!: Phaser.GameObjects.TileSprite;
+  private africaFloorTile!: Phaser.GameObjects.TileSprite;
   private channelWaterTile!: Phaser.GameObjects.TileSprite;
   private medWaterTile!: Phaser.GameObjects.TileSprite;
   private bgGfx!: Phaser.GameObjects.Graphics;
@@ -223,7 +226,9 @@ export class BrokeScene extends Phaser.Scene {
   }
 
   preload() {
-    // Preload sandy floor background and water tile
+    // Preload regional floor background and water tiles
+    this.load.image('uk_floor', '/uk_floor.png');
+    this.load.image('french_floor', '/french_floor_tile.png');
     this.load.image('sandy_floor', '/sandy.png');
     this.load.image('water_tile', '/water-tile.png');
 
@@ -278,8 +283,21 @@ export class BrokeScene extends Phaser.Scene {
   }
 
   create() {
-    // 0. Sandy Floor / Background TileSprite spanning wide world
+    // 0. Base dark foundation backdrop
     this.floorTile = this.add.tileSprite(2100, 500, 6400, 3200, 'sandy_floor').setDepth(0);
+    this.floorTile.setAlpha(0.15);
+
+    // 0.1 Regional Floor Tiles
+    // UK Region Floor (y: -600 to 140, height: 740, center: -230)
+    this.ukFloorTile = this.add.tileSprite(2100, -230, 6400, 740, 'uk_floor').setDepth(0.1);
+
+    // Europe (France) Region Floor (y: 280 to 660, height: 380, center: 470)
+    this.europeFloorTile = this.add.tileSprite(2100, 470, 6400, 380, 'french_floor').setDepth(0.1);
+    this.europeFloorTile.setTileScale(0.25, 0.25);
+
+    // North Africa Region Floor (y: 860 to 1600, height: 740, center: 1230)
+    this.africaFloorTile = this.add.tileSprite(2100, 1230, 6400, 740, 'sandy_floor').setDepth(0.1);
+    this.africaFloorTile.setTileScale(0.35, 0.35);
 
     // 0.5. Water Tile Sprites separating regions
     // English Channel Water (y: 140 to 280, height: 140px, center: 210)
@@ -873,16 +891,16 @@ export class BrokeScene extends Phaser.Scene {
     const worldW = 4600;
     const startX = -300;
 
-    // 1. UK Land Region (North: y: -100 to 160) - Oceanic Navy
-    gfx.fillStyle(0x0c1b2e, 0.55);
+    // 1. UK Land Region (North: y: -100 to 160) - Oceanic Navy atmospheric tint
+    gfx.fillStyle(0x0c1b2e, 0.22);
     gfx.fillRect(startX, REGION_BOUNDS.UK.yMin, worldW, REGION_BOUNDS.UK.yMax - REGION_BOUNDS.UK.yMin);
 
-    // 2. West Europe Land Region (Middle: y: 215 to 485) - Slate / Pine
-    gfx.fillStyle(0x0d2222, 0.45);
+    // 2. West Europe Land Region (Middle: y: 215 to 485) - Slate / Pine atmospheric tint
+    gfx.fillStyle(0x0d2222, 0.18);
     gfx.fillRect(startX, REGION_BOUNDS.EUROPE.yMin, worldW, REGION_BOUNDS.EUROPE.yMax - REGION_BOUNDS.EUROPE.yMin);
 
-    // 3. North Africa Land Region (South: y: 565 to 820) - Warm Clay / Amber
-    gfx.fillStyle(0x291910, 0.55);
+    // 3. North Africa Land Region (South: y: 565 to 820) - Warm Clay / Amber atmospheric tint
+    gfx.fillStyle(0x291910, 0.22);
     gfx.fillRect(startX, REGION_BOUNDS.AFRICA.yMin, worldW, REGION_BOUNDS.AFRICA.yMax - REGION_BOUNDS.AFRICA.yMin);
 
     // Subtle grid lines on land regions
