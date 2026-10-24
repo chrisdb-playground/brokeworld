@@ -45,8 +45,8 @@ describe('Scout Discovery & Dynamic Node/Route System', () => {
       gangId: gang.id,
       region: 'EUROPE',
       x: 600,
-      y: 430,
-      influenceRadius: 220,
+      y: 1000,
+      influenceRadius: 700,
     });
     gang.mainHqLocationId = hq.id;
     gang.hqLocationIds = [hq.id];
@@ -68,9 +68,9 @@ describe('Scout Discovery & Dynamic Node/Route System', () => {
     const events: any[] = [];
     processScouts(world, prng, events);
 
-    // Scout should dynamically generate 2 to 4 candidate nodes!
+    // Scout dynamically generates 3 to 5 candidate nodes!
     expect(gang.discoveredNodeIds?.length).toBeGreaterThanOrEqual(2);
-    expect(gang.discoveredNodeIds?.length).toBeLessThanOrEqual(4);
+    expect(gang.discoveredNodeIds?.length).toBeLessThanOrEqual(5);
 
     for (const candId of gang.discoveredNodeIds!) {
       const node = world.locations[candId];
@@ -79,7 +79,7 @@ describe('Scout Discovery & Dynamic Node/Route System', () => {
       expect(node.gangId).toBe('NEUTRAL');
       expect(node.discoveredByGangId).toBe(gang.id);
       expect(node.candidateCost).toBeGreaterThanOrEqual(1000);
-      expect(node.expiresAtTick).toBe(world.tick + 180);
+      expect(node.expiresAtTick).toBe(world.tick + 240);
     }
 
     const discEvents = events.filter((e) => e.type === 'NODE_DISCOVERED');
@@ -97,7 +97,7 @@ describe('Scout Discovery & Dynamic Node/Route System', () => {
       locations: {},
     });
 
-    const created = scoutAreaForNodes(world, gang.id, prng, 'EUROPE', { x: 600, y: 430 });
+    const created = scoutAreaForNodes(world, gang.id, prng, 'EUROPE', { x: 600, y: 1000 });
     expect(created.length).toBeGreaterThanOrEqual(2);
 
     const firstNodeId = created[0].id;
@@ -154,7 +154,7 @@ describe('Scout Discovery & Dynamic Node/Route System', () => {
     expect(routes[0].sourceId).toBe(rec.id);
     expect(routes[0].targetId).toBe(depot.id);
     expect(routes[0].charterCost).toBe(1000);
-    expect(routes[0].expiresAtTick).toBe(world.tick + 180);
+    expect(routes[0].expiresAtTick).toBe(world.tick + 240);
     expect(gang.discoveredCandidateRoutes).toHaveLength(1);
 
     // Advance to expiration tick

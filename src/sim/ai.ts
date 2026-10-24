@@ -6,7 +6,7 @@ import type {
 } from './types';
 import type { SeededPrng } from './rng';
 import { ensureGangNodesStaffed, hireHood } from './hoods';
-import { canClaimCandidateNode, executeClaimCandidateNode, executePurchaseBorderRoute } from './influence';
+import { canClaimCandidateNode, executeClaimCandidateNode, executePurchaseBorderRoute, INITIAL_HQ_INFLUENCE_RADIUS } from './influence';
 import {
   bootMigrant,
   assignMigrantToWorkshop,
@@ -108,13 +108,13 @@ export function processGangAI(
 
       const getPriority = (cand: typeof candidates[0]): number => {
         // 1. First Recruiter in home region
-        if (cand.kind === 'RECRUITER' && recCount === 0) return 1;
+        if (cand.kind === 'RECRUITER' && recCount === 0 && ownRegions.has(cand.region)) return 1;
 
-        // 2. Cross-region Forward HQ to expand influence across the border
+        // 2. Cross-region Forward HQ to expand influence across borders
         if (cand.kind === 'HQ' && !ownRegions.has(cand.region)) {
           // If we already have 2 regions, wait until we have an active route before expanding to a 3rd
           if (ownRegions.size >= 2 && !hasRoute) return 8;
-          return recCount > 0 ? 2 : 4;
+          return 2;
         }
 
         // 3. Depot in destination region (different region than home recruiter)
@@ -126,13 +126,18 @@ export function processGangAI(
           return depCount === 0 ? 3 : 6;
         }
 
-        // 4. Secondary Recruiter
+        // 4. First recruiter anywhere
+        if (cand.kind === 'RECRUITER' && recCount === 0) return 2;
+
+        // 5. Secondary Recruiter
         if (cand.kind === 'RECRUITER') return 5;
 
-        // 5. Workshop
-        if (cand.kind === 'WORKSHOP') return !gang.workshopLocationId ? 7 : 9;
+        // 6. Workshop (only prioritize if we already have an active route)
+        if (cand.kind === 'WORKSHOP') {
+          return hasRoute ? (!gang.workshopLocationId ? 6 : 9) : 9;
+        }
 
-        // 6. Same-region HQ synergy
+        // 7. Same-region HQ synergy
         if (cand.kind === 'HQ') return 8;
 
         return 10;
@@ -142,7 +147,7 @@ export function processGangAI(
 
       // Always reserve money to purchase discovered routes if available
       const routeReserve = (gang.discoveredRouteIds && gang.discoveredRouteIds.length > 0) ? 1000 : 0;
-      const safetyReserve = routeReserve + 300;
+      const safetyReserve = routeReserve + 200;
 
       for (const cand of candidates) {
         const check = canClaimCandidateNode(state, gang.id, cand.id);
@@ -225,14 +230,14 @@ export function processGangAI(
           name: `${synd.name} European HQ`,
           region: 'EUROPE',
           x: synd.xOff,
-          y: 430,
+          y: 1000,
           tileFamily: 'logistics-hub',
           tileVariant: 'mk1',
           kind: 'HQ',
           gangId: synd.id,
           isMainHq: true,
           operationalStatus: 'ACTIVE',
-          influenceRadius: 220,
+          influenceRadius: INITIAL_HQ_INFLUENCE_RADIUS,
         };
 
         state.gangs[synd.id] = {

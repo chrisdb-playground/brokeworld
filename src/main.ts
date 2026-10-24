@@ -44,6 +44,8 @@ game.events.once('ready', () => {
     onToggleInfluence: () => scene.toggleInfluence(),
     onStartPlacement: (data) => scene.startPlacementMode(data),
     onCancelPlacement: () => scene.cancelPlacementMode(),
+    onSwitchToGeoView: () => scene.switchToGeoView(),
+    onSwitchToRegionView: (hqId) => scene.switchToRegionView(hqId),
   });
 
   scene.setEventsHandler({
@@ -51,6 +53,8 @@ game.events.once('ready', () => {
     onSelectLocation: (loc) => hudOverlay.selectLocation(loc),
     onSelectRoute: (route) => hudOverlay.selectRoute(route),
     onSelectVoyage: (voyage) => hudOverlay.selectVoyage(voyage),
+    onSelectCorridorBundle: (bundle) => hudOverlay.selectCorridorBundle(bundle),
+    onViewModeChanged: (mode, regionHq) => hudOverlay.setViewMode(mode, regionHq),
     onDeselectAll: () => hudOverlay.deselectEntity(),
     onCancelPlacement: () => {
       // Clean up any UI placement states if needed

@@ -3,6 +3,7 @@ import type { SeededPrng } from './rng';
 import { assignHoodToVoyage, hireHood, releaseHoodFromVoyage } from './hoods';
 import { BALANCE } from './balance';
 import { updateRecruiterReputation } from './reputation';
+import { INITIAL_HQ_INFLUENCE_RADIUS, MAX_HQ_INFLUENCE_RADIUS } from './influence';
 
 let voyageSeq = 1;
 
@@ -320,7 +321,7 @@ function resolveVoyage(
       for (const loc of Object.values(state.locations)) {
         if (loc.gangId === gang.id && loc.kind === 'HQ') {
           if (loc.region === srcLoc?.region || loc.region === targetLoc?.region) {
-            loc.influenceRadius = Math.min(320, (loc.influenceRadius || 140) + 5);
+            loc.influenceRadius = Math.min(MAX_HQ_INFLUENCE_RADIUS, (loc.influenceRadius || INITIAL_HQ_INFLUENCE_RADIUS) + 15);
           }
         }
       }

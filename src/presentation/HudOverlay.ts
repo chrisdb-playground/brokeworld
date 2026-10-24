@@ -1,6 +1,8 @@
 import type { GamePort } from '../app/GamePort';
 import type { TickScheduler } from '../app/TickScheduler';
 import type {
+  CandidateRouteOpportunity,
+  CorridorBundle,
   GangState,
   LocationDef,
   LocationKind,
@@ -15,6 +17,7 @@ import {
   getNodeHeatMultiplier,
   getHqSynergyInfo,
   canClaimCandidateNode,
+  getClosestHqForNode,
 } from '../sim/influence';
 import { MigrantRenderer } from './MigrantRenderer';
 import { EventLogView } from './EventLogView';
@@ -28,6 +31,8 @@ export interface HudOverlayCallbacks {
   onToggleInfluence?: () => boolean;
   onStartPlacement?: (data: { gangId: string; kind: LocationKind; cost: number; region?: RegionId }) => void;
   onCancelPlacement?: () => void;
+  onSwitchToGeoView?: () => void;
+  onSwitchToRegionView?: (hqId: string) => void;
 }
 
 export class HudOverlay {
@@ -40,10 +45,15 @@ export class HudOverlay {
   private onToggleInfluenceCallback?: () => boolean;
   private onStartPlacementCallback?: (data: { gangId: string; kind: LocationKind; cost: number; region?: RegionId }) => void;
   private onCancelPlacementCallback?: () => void;
+  private onSwitchToGeoViewCallback?: () => void;
+  private onSwitchToRegionViewCallback?: (hqId: string) => void;
 
   private currentSnapshot!: WorldSnapshot;
-  private selectedEntityType: 'MIGRANT' | 'GANG' | 'LOCATION' | 'ROUTE' | 'VOYAGE' | null = null;
+  private selectedEntityType: 'MIGRANT' | 'GANG' | 'LOCATION' | 'ROUTE' | 'VOYAGE' | 'CORRIDOR_BUNDLE' | null = null;
   private selectedEntityId: string | null = null;
+  private selectedCorridorBundle: CorridorBundle | null = null;
+  private currentViewMode: 'GEO' | 'REGION' = 'GEO';
+  private activeRegionHq: LocationDef | null = null;
   private selectedGangIds: Set<string> = new Set();
   private isInfluenceVisible = true;
   private lastInspectorKey: string | null = null;
@@ -72,6 +82,8 @@ export class HudOverlay {
     this.onToggleInfluenceCallback = callbacks.onToggleInfluence;
     this.onStartPlacementCallback = callbacks.onStartPlacement;
     this.onCancelPlacementCallback = callbacks.onCancelPlacement;
+    this.onSwitchToGeoViewCallback = callbacks.onSwitchToGeoView;
+    this.onSwitchToRegionViewCallback = callbacks.onSwitchToRegionView;
 
     // Initialize with all active gangs selected so all assets are visible on launch
     const initialSnapshot = this.port.getSnapshot();
@@ -93,6 +105,52 @@ export class HudOverlay {
       this.currentSnapshot = snapshot;
       this.update(snapshot);
     });
+  }
+
+  setViewMode(mode: 'GEO' | 'REGION', regionHq?: LocationDef | null): void {
+    this.currentViewMode = mode;
+    this.activeRegionHq = regionHq || null;
+    this.updateViewModeUI();
+  }
+
+  selectCorridorBundle(bundle: CorridorBundle): void {
+    this.selectedEntityType = 'CORRIDOR_BUNDLE';
+    this.selectedEntityId = bundle.id;
+    this.selectedCorridorBundle = bundle;
+    this.renderInspector();
+  }
+
+  private updateViewModeUI(): void {
+    const geoBtn = document.getElementById('btn-geo-view');
+    const sep = document.getElementById('hud-view-separator');
+    const regionBtn = document.getElementById('btn-region-view');
+    const regionLabel = document.getElementById('hud-active-region-label');
+
+    if (this.currentViewMode === 'GEO') {
+      if (geoBtn) {
+        geoBtn.classList.add('active');
+        geoBtn.innerHTML = '<span class="btn-icon">🌐</span><span class="btn-label">GEO VIEW</span>';
+      }
+      if (sep) sep.style.display = 'none';
+      if (regionBtn) {
+        regionBtn.style.display = 'none';
+        regionBtn.classList.remove('active');
+      }
+    } else {
+      if (geoBtn) {
+        geoBtn.classList.remove('active');
+        geoBtn.innerHTML = '<span class="btn-icon">← 🌐</span><span class="btn-label">GEO VIEW</span>';
+      }
+      if (sep) sep.style.display = 'inline-block';
+      if (regionBtn) {
+        regionBtn.style.display = 'inline-flex';
+        regionBtn.classList.add('active');
+      }
+      if (regionLabel && this.activeRegionHq) {
+        const flag = this.activeRegionHq.region === 'UK' ? '🇬🇧' : this.activeRegionHq.region === 'AFRICA' ? '🌍' : '🇪🇺';
+        regionLabel.textContent = `${flag} ${this.activeRegionHq.name}`;
+      }
+    }
   }
 
   selectLocation(loc: LocationDef) {
@@ -195,6 +253,19 @@ export class HudOverlay {
             <div class="brand-name">BROKE WORLD</div>
             <div class="brand-sub">AUTONOMOUS SMUGGLER SIMULATOR</div>
           </div>
+        </div>
+
+        <!-- VIEW MODE NAVIGATION (2 Discrete Zoom Levels: GEO vs REGION) -->
+        <div class="view-mode-bar" id="hud-view-mode-bar">
+          <button class="view-mode-btn active" id="btn-geo-view" title="Strategic Macro Overview (Key 4 or Click)">
+            <span class="btn-icon">🌐</span>
+            <span class="btn-label" id="btn-geo-label">GEO VIEW</span>
+          </button>
+          <span class="view-mode-sep" id="hud-view-separator" style="display: none;">/</span>
+          <button class="view-mode-btn region-btn" id="btn-region-view" style="display: none;" title="Current Regional Operations Detail">
+            <span class="btn-icon">📍</span>
+            <span class="btn-label" id="hud-active-region-label">REGION VIEW</span>
+          </button>
         </div>
 
         <!-- NAVIGATION TABS -->
@@ -313,6 +384,21 @@ export class HudOverlay {
 
     root.querySelector('#btn-open-event-log')?.addEventListener('click', () => {
       this.setActiveTab('events');
+    });
+
+    // Hook up View Mode switcher buttons (GEO vs REGION)
+    root.querySelector('#btn-geo-view')?.addEventListener('click', (e) => {
+      if (this.onSwitchToGeoViewCallback) {
+        this.onSwitchToGeoViewCallback();
+      }
+      (e.currentTarget as HTMLElement)?.blur();
+    });
+
+    root.querySelector('#btn-region-view')?.addEventListener('click', (e) => {
+      if (this.activeRegionHq && this.onSwitchToRegionViewCallback) {
+        this.onSwitchToRegionViewCallback(this.activeRegionHq.id);
+      }
+      (e.currentTarget as HTMLElement)?.blur();
     });
 
     // Hook up time control buttons
@@ -534,6 +620,32 @@ export class HudOverlay {
               this.selectRoute(route);
               if (this.onSelectRouteCallback) {
                 this.onSelectRouteCallback(rid);
+              }
+            }
+          }
+          return;
+        }
+
+        const btnZoomRegion = target.closest<HTMLElement>('.btn-zoom-region, .btn-zoom-region-action');
+        if (btnZoomRegion) {
+          e.stopPropagation();
+          const hqId = btnZoomRegion.getAttribute('data-hq-id');
+          if (hqId && this.onSwitchToRegionViewCallback) {
+            this.onSwitchToRegionViewCallback(hqId);
+          }
+          return;
+        }
+
+        const btnInspectBundledRoute = target.closest<HTMLElement>('.btn-inspect-bundled-route, .attached-route-card[data-route-id]');
+        if (btnInspectBundledRoute) {
+          e.stopPropagation();
+          const rId = btnInspectBundledRoute.getAttribute('data-route-id');
+          if (rId && this.currentSnapshot) {
+            const route = this.currentSnapshot.routes[rId];
+            if (route) {
+              this.selectRoute(route);
+              if (this.onSelectRouteCallback) {
+                this.onSelectRouteCallback(rId);
               }
             }
           }
@@ -856,6 +968,11 @@ export class HudOverlay {
       const m = this.currentSnapshot.migrants[this.selectedEntityId];
       if (m) {
         stateKey = `:${m.status}:${m.happiness}:${m.destinationReached}:${m.goalFulfilled}:${m.originId || ''}`;
+      }
+    } else if (this.selectedEntityType === 'CORRIDOR_BUNDLE') {
+      const b = this.selectedCorridorBundle;
+      if (b) {
+        stateKey = `:${b.routes.length}:${b.totalActiveVoyages}:${b.totalDelivered}:${b.totalRevenue}`;
       }
     }
 
@@ -1180,10 +1297,10 @@ export class HudOverlay {
       );
 
       const outgoingRoutes = Object.values(this.currentSnapshot.routes).filter(
-        (r) => r.sourceId === loc.id && r.status !== 'CLOSED'
+        (r) => r.sourceId === loc.id
       );
       const incomingRoutes = Object.values(this.currentSnapshot.routes).filter(
-        (r) => r.targetId === loc.id && r.status !== 'CLOSED'
+        (r) => r.targetId === loc.id
       );
       const allAttachedRoutes = [...outgoingRoutes, ...incomingRoutes];
 
@@ -1244,6 +1361,13 @@ export class HudOverlay {
           <span class="region-pill">Region ${loc.region} • ${loc.kind} (${loc.tileFamily})</span>
         </div>
 
+        ${loc.kind === 'HQ' ? `
+          <button class="btn-zoom-region-action" data-hq-id="${loc.id}" style="width: 100%; margin: 8px 0 12px 0; padding: 8px 12px; background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.6); color: #38bdf8; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: bold; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s ease;">
+            <span>📍</span>
+            <span>CENTER ON ${loc.name.toUpperCase()} (REGION VIEW)</span>
+          </button>
+        ` : ''}
+
         ${isCandidate ? `
           <div class="candidate-banner">
             <div class="candidate-title">🔍 UNCLAIMED CANDIDATE SITE</div>
@@ -1270,7 +1394,7 @@ export class HudOverlay {
           ` : ''}
           ${loc.kind === 'HQ' ? `
             <div class="insp-row"><span class="lbl">HQ STATUS</span><span class="val highlight">${loc.isMainHq ? '⭐ Primary Gang HQ (Holds Reserves)' : 'Regional Command Post'}</span></div>
-            <div class="insp-row"><span class="lbl">INFLUENCE ZONE</span><span class="val highlight">${Math.round(loc.influenceRadius || 220)}px Radius (Expanding)</span></div>
+            <div class="insp-row"><span class="lbl">INFLUENCE ZONE</span><span class="val highlight">${Math.round(loc.influenceRadius || 650)}px Radius (Expanding)</span></div>
           ` : ''}
           ${assignedHood ? `
             <div class="insp-row"><span class="lbl">MANAGING HOOD</span><span class="val highlight">${assignedHood.name}</span></div>
@@ -1629,12 +1753,27 @@ export class HudOverlay {
       const gang = this.currentSnapshot.gangs[route.gangId];
       const src = this.currentSnapshot.locations[route.sourceId];
       const tgt = this.currentSnapshot.locations[route.targetId];
+      const srcHq = src ? getClosestHqForNode(src, this.currentSnapshot) : null;
+      const tgtHq = tgt ? getClosestHqForNode(tgt, this.currentSnapshot) : null;
 
       title.textContent = `ROUTE SERVICE`;
       content.innerHTML = `
         <div class="route-banner" style="border-left: 4px solid ${gang?.color || '#38bdf8'}">
           <h2>${src?.name} → ${tgt?.name}</h2>
           <span style="color: ${gang?.color}">${gang?.name}</span>
+        </div>
+
+        <div class="route-zoom-actions" style="display: flex; gap: 8px; margin: 8px 0 12px 0;">
+          ${srcHq ? `
+            <button class="btn-zoom-region" data-hq-id="${srcHq.id}" style="flex: 1; padding: 6px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 4px; color: #38bdf8; font-size: 10px; font-weight: bold; cursor: pointer;">
+              📍 Zoom: ${srcHq.name}
+            </button>
+          ` : ''}
+          ${tgtHq && tgtHq.id !== srcHq?.id ? `
+            <button class="btn-zoom-region" data-hq-id="${tgtHq.id}" style="flex: 1; padding: 6px; background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 4px; color: #4ade80; font-size: 10px; font-weight: bold; cursor: pointer;">
+              📍 Zoom: ${tgtHq.name}
+            </button>
+          ` : ''}
         </div>
 
         <div class="insp-grid">
@@ -1646,6 +1785,103 @@ export class HudOverlay {
           <div class="insp-row"><span class="lbl">TOTAL CARRIED</span><span class="val" id="insp-route-carried">${route.totalPassengers} Migrants</span></div>
           <div class="insp-row"><span class="lbl">TOTAL REVENUE</span><span class="val text-green" id="insp-route-rev">$${route.revenue}</span></div>
           <div class="insp-row"><span class="lbl">STATUS</span><span class="val" id="insp-route-status">${route.status}</span></div>
+        </div>
+      `;
+    } else if (this.selectedEntityType === 'CORRIDOR_BUNDLE') {
+      const bundle = this.selectedCorridorBundle;
+      if (!bundle) return;
+
+      const gang = this.currentSnapshot.gangs[bundle.gangId];
+      const srcHq = this.currentSnapshot.locations[bundle.sourceHqId];
+      const tgtHq = this.currentSnapshot.locations[bundle.targetHqId];
+      if (!srcHq || !tgtHq) return;
+
+      title.textContent = `TRUNK CORRIDOR DOSSIER`;
+
+      const isSea = bundle.modes.includes('BOAT');
+      const modeLabel = isSea ? '🚢 Cross-Border Sea Corridor' : '🚐 Regional Transit Corridor';
+
+      content.innerHTML = `
+        <div class="bundle-banner" style="border-left: 4px solid ${gang?.color || '#38bdf8'}; background: rgba(15, 23, 42, 0.7); padding: 12px; border-radius: 6px; margin-bottom: 10px;">
+          <div class="bundle-banner-top" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span class="bundle-mode-tag" style="font-size: 10px; color: #38bdf8; font-family: 'JetBrains Mono', monospace; font-weight: bold;">${modeLabel}</span>
+            <span class="bundle-gang-name" style="color: ${gang?.color || '#fff'}; font-weight: bold; font-size: 11px;">${gang?.emblem || '✦'} ${gang?.name || ''}</span>
+          </div>
+          <h2 class="bundle-title" style="font-size: 15px; font-weight: bold; color: #fff; margin: 4px 0;">${srcHq.name} ➔ ${tgtHq.name}</h2>
+          <div class="bundle-sub" style="font-size: 11px; color: #94a3b8;">Strategic Trunk Line bundling ${bundle.routes.length} route ${bundle.routes.length === 1 ? 'service' : 'services'} between influence zones.</div>
+        </div>
+
+        <div class="corridor-zoom-actions" style="display: flex; gap: 8px; margin: 8px 0 12px 0;">
+          <button class="btn-zoom-region" data-hq-id="${srcHq.id}" style="flex: 1; padding: 7px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 6px; color: #38bdf8; font-weight: bold; cursor: pointer; font-size: 11px;">
+            📍 Zoom: ${srcHq.name}
+          </button>
+          <button class="btn-zoom-region" data-hq-id="${tgtHq.id}" style="flex: 1; padding: 7px; background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 6px; color: #4ade80; font-weight: bold; cursor: pointer; font-size: 11px;">
+            📍 Zoom: ${tgtHq.name}
+          </button>
+        </div>
+
+        <div class="insp-grid">
+          <div class="insp-row">
+            <span class="lbl">BUNDLED ROUTES</span>
+            <span class="val highlight">${bundle.routes.length} Corridors</span>
+          </div>
+          <div class="insp-row">
+            <span class="lbl">ACTIVE VOYAGES</span>
+            <span class="val highlight" id="insp-bundle-voyages">${bundle.totalActiveVoyages} Vehicles</span>
+          </div>
+          <div class="insp-row">
+            <span class="lbl">TOTAL DELIVERED</span>
+            <span class="val text-green" id="insp-bundle-delivered">${bundle.totalDelivered} Migrants</span>
+          </div>
+          <div class="insp-row">
+            <span class="lbl">COMBINED REVENUE</span>
+            <span class="val text-green" id="insp-bundle-revenue">$${bundle.totalRevenue}</span>
+          </div>
+        </div>
+
+        <div class="insp-subhead" style="margin-top: 14px;">BUNDLED ROUTE SERVICES (${bundle.routes.length})</div>
+        <div class="attached-routes-list" style="margin-top: 6px;">
+          ${bundle.routes.map((r) => {
+            const rSrc = this.currentSnapshot.locations[r.sourceId];
+            const rTgt = this.currentSnapshot.locations[r.targetId];
+            const skipper = r.assignedSkipperHoodId ? this.currentSnapshot.hoods[r.assignedSkipperHoodId] : null;
+            return `
+              <div class="attached-route-card" data-route-id="${r.id}" style="border-left: 3px solid ${gang?.color || '#38bdf8'};">
+                <div class="attached-route-top">
+                  <span class="route-mode-badge mode-${r.mode.toLowerCase()}">${r.mode === 'BOAT' ? '🚢 BOAT' : '🚐 VAN'}</span>
+                  <span class="route-price-tag text-green">$${r.price}</span>
+                </div>
+                <div class="attached-route-path">
+                  <span class="route-endpoint">${rSrc?.name || r.sourceId}</span>
+                  <span class="route-arrow">➔</span>
+                  <span class="route-endpoint">${rTgt?.name || r.targetId}</span>
+                </div>
+                <div class="attached-route-specs">
+                  <div class="route-spec-item">
+                    <span class="spec-k">RUNS</span>
+                    <span class="spec-v highlight">${r.activeVoyageCount}</span>
+                  </div>
+                  <div class="route-spec-item">
+                    <span class="spec-k">DELIVERED</span>
+                    <span class="spec-v">${r.totalPassengers}</span>
+                  </div>
+                  <div class="route-spec-item">
+                    <span class="spec-k">REVENUE</span>
+                    <span class="spec-v text-green">$${r.revenue}</span>
+                  </div>
+                  <div class="route-spec-item">
+                    <span class="spec-k">SKIPPER</span>
+                    <span class="spec-v">${skipper ? skipper.name : '<span style="color:#ef4444;">Unstaffed</span>'}</span>
+                  </div>
+                </div>
+                <div style="display: flex; justify-content: flex-end; margin-top: 6px;">
+                  <button class="btn-inspect-bundled-route" data-route-id="${r.id}" style="padding: 4px 8px; background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.5); color: #38bdf8; border-radius: 4px; font-size: 10px; cursor: pointer;">
+                    🔍 Inspect Route
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join('')}
         </div>
       `;
     } else if (this.selectedEntityType === 'VOYAGE') {
@@ -1707,6 +1943,17 @@ export class HudOverlay {
   }
 
   private updateInspectorValues(content: HTMLElement) {
+    if (this.selectedEntityType === 'CORRIDOR_BUNDLE') {
+      const bundle = this.selectedCorridorBundle;
+      if (!bundle) return;
+      const vEl = content.querySelector('#insp-bundle-voyages');
+      if (vEl) vEl.textContent = `${bundle.totalActiveVoyages} Vehicles`;
+      const dEl = content.querySelector('#insp-bundle-delivered');
+      if (dEl) dEl.textContent = `${bundle.totalDelivered} Migrants`;
+      const rEl = content.querySelector('#insp-bundle-revenue');
+      if (rEl) rEl.textContent = `$${bundle.totalRevenue}`;
+      return;
+    }
     if (this.selectedEntityType === 'MIGRANT') {
       const migrant = this.currentSnapshot.migrants[this.selectedEntityId!];
       if (!migrant) return;
@@ -1775,7 +2022,7 @@ export class HudOverlay {
         if (candId && gId) {
           const check = canClaimCandidateNode(this.currentSnapshot, gId, candId);
           btn.disabled = !check.allowed;
-          btn.title = check.allowed ? 'Claim candidate site' : check.reason;
+          btn.title = check.allowed ? 'Claim candidate site' : (check.reason || 'Cannot claim site');
         }
       });
 
@@ -1853,7 +2100,7 @@ export class HudOverlay {
         if (candId && gId) {
           const check = canClaimCandidateNode(this.currentSnapshot, gId, candId);
           btn.disabled = !check.allowed;
-          btn.title = check.allowed ? 'Claim candidate site' : check.reason;
+          btn.title = check.allowed ? 'Claim candidate site' : (check.reason || 'Cannot claim site');
         }
       });
 

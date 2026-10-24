@@ -112,6 +112,18 @@ export interface RouteServiceState {
   activeVoyageCount: number;
 }
 
+export interface CorridorBundle {
+  id: string; // e.g. CORRIDOR_{gangId}_{sourceHqId}_{targetHqId}
+  gangId: string;
+  sourceHqId: string;
+  targetHqId: string;
+  routes: RouteServiceState[];
+  totalActiveVoyages: number;
+  totalDelivered: number;
+  totalRevenue: number;
+  modes: Array<'BOAT' | 'VAN'>;
+}
+
 export interface MigrantAvatarSpec {
   skinTone: string;
   shirtColor: string;

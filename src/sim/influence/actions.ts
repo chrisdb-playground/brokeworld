@@ -64,11 +64,11 @@ export function canPurchaseHQ(
 
   // Minimum distance from existing nodes to prevent overlapping tile geometry
   for (const loc of Object.values(state.locations)) {
-    if (Math.hypot(loc.x - x, loc.y - y) < 70) {
+    if (Math.hypot(loc.x - x, loc.y - y) < 340) {
       return {
         allowed: false,
         cost,
-        reason: `Too close to existing node ${loc.name} (minimum clearance 70px).`,
+        reason: `Too close to existing node ${loc.name} (minimum clearance 340px).`,
         heat: 0,
       };
     }
@@ -165,11 +165,11 @@ export function canPurchaseNode(
 
   // Clearance check
   for (const loc of Object.values(state.locations)) {
-    if (Math.hypot(loc.x - x, loc.y - y) < 70) {
+    if (Math.hypot(loc.x - x, loc.y - y) < 340) {
       return {
         allowed: false,
         cost,
-        reason: `Too close to existing node ${loc.name} (minimum clearance 70px).`,
+        reason: `Too close to existing node ${loc.name} (minimum clearance 340px).`,
         heat,
       };
     }

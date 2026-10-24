@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import type { GamePort } from '../app/GamePort';
 import { engine, scheduler } from '../app/state';
 import type {
+  CorridorBundle,
   GangState,
   LocationDef,
   LocationKind,
@@ -17,14 +18,17 @@ import {
   WATER_ZONES,
   getRegionForY,
   canPurchaseNode,
+  getClosestHqForNode,
 } from '../sim/influence';
 
 export interface SceneSelectionEvents {
   onSelectLocation?: (location: LocationDef, snapshot: WorldSnapshot) => void;
   onSelectRoute?: (route: RouteServiceState, snapshot: WorldSnapshot) => void;
+  onSelectCorridorBundle?: (bundle: CorridorBundle, snapshot: WorldSnapshot) => void;
   onSelectGang?: (gang: GangState, snapshot: WorldSnapshot) => void;
   onSelectVoyage?: (voyage: VoyageState, snapshot: WorldSnapshot) => void;
   onSelectMigrant?: (migrant: MigrantState, snapshot: WorldSnapshot) => void;
+  onViewModeChanged?: (mode: 'GEO' | 'REGION', regionHq?: LocationDef | null) => void;
   onDeselectAll?: () => void;
   onCancelPlacement?: () => void;
   onInfluenceToggled?: (visible: boolean) => void;
@@ -203,6 +207,7 @@ export class BrokeScene extends Phaser.Scene {
   private channelWaterTile!: Phaser.GameObjects.TileSprite;
   private medWaterTile!: Phaser.GameObjects.TileSprite;
   private bgGfx!: Phaser.GameObjects.Graphics;
+  private regionCropGfx!: Phaser.GameObjects.Graphics;
   private influenceGfxUk!: Phaser.GameObjects.Graphics;
   private influenceGfxEur!: Phaser.GameObjects.Graphics;
   private influenceGfxAfr!: Phaser.GameObjects.Graphics;
@@ -238,8 +243,19 @@ export class BrokeScene extends Phaser.Scene {
   private selectedRouteId: string | null = null;
   private selectedLocationId: string | null = null;
   private selectedVoyageId: string | null = null;
+  private selectedCorridorBundleId: string | null = null;
+
+  // 2 Discrete Levels of Zoom: GEO (Macro Strategic Overview) vs REGION (Micro Regional Operations)
+  private viewMode: 'GEO' | 'REGION' = 'GEO';
+  private activeRegionHqId: string | null = null;
+  private corridorBundles: Map<string, CorridorBundle> = new Map();
+  private trunkRouteHitZones: Map<string, Phaser.GameObjects.Zone> = new Map();
+  private trunkRouteBadges: Map<string, Phaser.GameObjects.Container> = new Map();
+  private corridorLineCoords: Map<string, { x1: number; y1: number; x2: number; y2: number }> = new Map();
+
   private justSelectedInteractiveObject = false;
   private lastHqSignature = '';
+  private lastBackdropSignature = '';
   private isSceneReady = false;
 
   constructor() {
@@ -338,28 +354,28 @@ export class BrokeScene extends Phaser.Scene {
 
   create() {
     // 0. Base dark foundation backdrop
-    this.floorTile = this.add.tileSprite(2100, 500, 6400, 3200, 'sandy_floor').setDepth(0);
+    this.floorTile = this.add.tileSprite(2100, 1100, 6400, 6000, 'sandy_floor').setDepth(0);
     this.floorTile.setAlpha(0.15);
 
-    // 0.1 Regional Floor Tiles
-    // UK Region Floor (y: -600 to 140, height: 740, center: -230)
-    this.ukFloorTile = this.add.tileSprite(2100, -230, 6400, 740, 'uk_floor').setDepth(0.1);
+    // 0.1 Regional Floor Tiles (3x tall regions)
+    // UK Region Floor (y: -700 to 200, height: 900, center: -250)
+    this.ukFloorTile = this.add.tileSprite(2100, -250, 6400, 900, 'uk_floor').setDepth(0.1);
 
-    // Europe (France) Region Floor (y: 280 to 660, height: 380, center: 470)
-    this.europeFloorTile = this.add.tileSprite(2100, 470, 6400, 380, 'french_floor').setDepth(0.1);
+    // Europe (France) Region Floor (y: 400 to 1600, height: 1200, center: 1000)
+    this.europeFloorTile = this.add.tileSprite(2100, 1000, 6400, 1200, 'french_floor').setDepth(0.1);
     this.europeFloorTile.setTileScale(0.25, 0.25);
 
-    // North Africa Region Floor (y: 860 to 1600, height: 740, center: 1230)
-    this.africaFloorTile = this.add.tileSprite(2100, 1230, 6400, 740, 'sandy_floor').setDepth(0.1);
+    // North Africa Region Floor (y: 1850 to 2850, height: 1000, center: 2350)
+    this.africaFloorTile = this.add.tileSprite(2100, 2350, 6400, 1000, 'sandy_floor').setDepth(0.1);
     this.africaFloorTile.setTileScale(0.35, 0.35);
 
     // 0.5. Water Tile Sprites separating regions
-    // English Channel Water (y: 140 to 280, height: 140px, center: 210)
-    this.channelWaterTile = this.add.tileSprite(2100, 210, 6400, 140, 'water_tile').setDepth(0.5);
+    // English Channel Water (y: 200 to 400, height: 200px, center: 300)
+    this.channelWaterTile = this.add.tileSprite(2100, 300, 6400, 200, 'water_tile').setDepth(0.5);
     this.channelWaterTile.setAlpha(0.92);
 
-    // Mediterranean Sea Water (y: 660 to 860, height: 200px, center: 760)
-    this.medWaterTile = this.add.tileSprite(2100, 760, 6400, 200, 'water_tile').setDepth(0.5);
+    // Mediterranean Sea Water (y: 1600 to 1850, height: 250px, center: 1725)
+    this.medWaterTile = this.add.tileSprite(2100, 1725, 6400, 250, 'water_tile').setDepth(0.5);
     this.medWaterTile.setAlpha(0.92);
 
     // 1. Graphics layers in depth order
@@ -388,6 +404,7 @@ export class BrokeScene extends Phaser.Scene {
     maskGfxAfr.fillRect(startX, REGION_BOUNDS.AFRICA.yMin, worldW, REGION_BOUNDS.AFRICA.yMax - REGION_BOUNDS.AFRICA.yMin);
     this.influenceGfxAfr.setMask(new Phaser.Display.Masks.GeometryMask(this, maskGfxAfr));
 
+    this.regionCropGfx = this.add.graphics().setDepth(1.8);
     this.borderGfx = this.add.graphics().setDepth(2);
     this.labelsContainer = this.add.container(0, 0).setDepth(2.5);
     this.connectionsGfx = this.add.graphics().setDepth(3);
@@ -426,11 +443,37 @@ export class BrokeScene extends Phaser.Scene {
     });
 
     // Center camera on world center for spacious multi-region layout
-    this.cameras.main.centerOn(2100, 500);
-    this.cameras.main.setZoom(0.46);
+    this.cameras.main.centerOn(2100, 1100);
+    this.cameras.main.setZoom(0.30);
 
     // Mark scene as ready
     this.isSceneReady = true;
+
+    // Ensure graphics are redrawn on focus, resize, or visibility change
+    this.game.events.on('focus', () => {
+      if (this.isSceneReady && this.currentSnapshot) {
+        this.renderRegionsBackdrop();
+        this.renderWorld(this.currentSnapshot);
+      }
+    });
+    window.addEventListener('focus', () => {
+      if (this.isSceneReady && this.currentSnapshot) {
+        this.renderRegionsBackdrop();
+        this.renderWorld(this.currentSnapshot);
+      }
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && this.isSceneReady && this.currentSnapshot) {
+        this.renderRegionsBackdrop();
+        this.renderWorld(this.currentSnapshot);
+      }
+    });
+    this.scale.on('resize', () => {
+      if (this.isSceneReady && this.currentSnapshot) {
+        this.renderRegionsBackdrop();
+        this.renderWorld(this.currentSnapshot);
+      }
+    });
 
     // Initial render (backdrop once, then dynamic layers)
     this.renderRegionsBackdrop();
@@ -448,6 +491,10 @@ export class BrokeScene extends Phaser.Scene {
   }
 
   private createStaticRegionLabels() {
+    this.updateStaticRegionLabels('GEO', null);
+  }
+
+  private updateStaticRegionLabels(mode: 'GEO' | 'REGION', activeHq?: LocationDef | null) {
     this.labelsContainer.removeAll(true);
 
     const titleStyle = {
@@ -467,6 +514,56 @@ export class BrokeScene extends Phaser.Scene {
       padding: { x: 6, y: 3 },
     };
 
+    if (mode === 'REGION' && activeHq) {
+      // In REGION View: only show focused header for the active operational theatre; crop other regions!
+      const flag = activeHq.region === 'UK' ? '🇬🇧' : activeHq.region === 'AFRICA' ? '🌍' : '🇪🇺';
+      const color = activeHq.region === 'UK' ? '#38bdf8' : activeHq.region === 'AFRICA' ? '#fb923c' : '#4ade80';
+      const bounds = REGION_BOUNDS[activeHq.region];
+
+      this.labelsContainer.add(
+        this.add.text(activeHq.x, bounds.yMin - 16, `${flag} ${activeHq.name.toUpperCase()} — LOCAL OPERATIONAL THEATRE`, {
+          ...titleStyle,
+          color,
+          fontSize: '13px',
+        }).setOrigin(0.5, 1)
+      );
+
+      // Local border checkpoint indicators
+      if (activeHq.region === 'UK') {
+        this.labelsContainer.add(
+          this.add.text(activeHq.x, 190, '▼ BORDER IN TO UK — DOVER MARITIME ENTRY', {
+            ...borderStyle,
+            color: '#38bdf8',
+            backgroundColor: '#0c2a47ee',
+          }).setOrigin(0.5, 1)
+        );
+      } else if (activeHq.region === 'EUROPE') {
+        this.labelsContainer.add(
+          this.add.text(activeHq.x, 410, '▲ BORDER OUT OF EUROPE — CHANNEL DEPARTURE PERIMETER', {
+            ...borderStyle,
+            color: '#4ade80',
+            backgroundColor: '#064e3bee',
+          }).setOrigin(0.5, 0)
+        );
+        this.labelsContainer.add(
+          this.add.text(activeHq.x, 1590, '▼ BORDER IN TO EUROPE — MEDITERRANEAN ENTRY CHECKPOINT', {
+            ...borderStyle,
+            color: '#4ade80',
+            backgroundColor: '#064e3bee',
+          }).setOrigin(0.5, 1)
+        );
+      } else if (activeHq.region === 'AFRICA') {
+        this.labelsContainer.add(
+          this.add.text(activeHq.x, 1860, '▲ BORDER OUT OF AFRICA — MARITIME DEPARTURE BORDER', {
+            ...borderStyle,
+            color: '#fb923c',
+            backgroundColor: '#7c2d12ee',
+          }).setOrigin(0.5, 0)
+        );
+      }
+      return;
+    }
+
     // Render region & border labels across the 3 main longitudinal sectors (West, Central, East)
     const sectorXs = [
       { x: 600, name: 'WEST SECTOR (NEON)' },
@@ -477,21 +574,21 @@ export class BrokeScene extends Phaser.Scene {
     for (const sec of sectorXs) {
       // 1. UK Region Title
       this.labelsContainer.add(
-        this.add.text(sec.x, -10, `🇬🇧 UNITED KINGDOM — ${sec.name}`, {
+        this.add.text(sec.x, -550, `🇬🇧 UNITED KINGDOM — ${sec.name}`, {
           ...titleStyle,
           color: '#38bdf8',
         }).setOrigin(0.5, 0)
       );
 
       // 2. English Channel Borders (2 Sides: IN to UK, OUT of Europe)
-      const ukBorderText = this.add.text(sec.x, 128, '▼ BORDER IN TO UK — DOVER MARITIME ENTRY', {
+      const ukBorderText = this.add.text(sec.x, 190, '▼ BORDER IN TO UK — DOVER MARITIME ENTRY', {
         ...borderStyle,
         color: '#38bdf8',
         backgroundColor: '#0c2a47ee',
       }).setOrigin(0.5, 1);
       this.labelsContainer.add(ukBorderText);
 
-      const channelSeaText = this.add.text(sec.x, 210, '🌊 ENGLISH CHANNEL MARITIME CORRIDOR', {
+      const channelSeaText = this.add.text(sec.x, 300, '🌊 ENGLISH CHANNEL MARITIME CORRIDOR', {
         ...borderStyle,
         fontSize: '11px',
         color: '#7dd3fc',
@@ -499,7 +596,7 @@ export class BrokeScene extends Phaser.Scene {
       }).setOrigin(0.5, 0.5);
       this.labelsContainer.add(channelSeaText);
 
-      const eurNorthBorderText = this.add.text(sec.x, 292, '▲ BORDER OUT OF EUROPE — CHANNEL DEPARTURE PERIMETER', {
+      const eurNorthBorderText = this.add.text(sec.x, 410, '▲ BORDER OUT OF EUROPE — CHANNEL DEPARTURE PERIMETER', {
         ...borderStyle,
         color: '#4ade80',
         backgroundColor: '#064e3bee',
@@ -508,21 +605,21 @@ export class BrokeScene extends Phaser.Scene {
 
       // 3. West Europe Region Title
       this.labelsContainer.add(
-        this.add.text(sec.x, 305, `🇪🇺 EUROPEAN CORRIDOR — ${sec.name}`, {
+        this.add.text(sec.x, 430, `🇪🇺 EUROPEAN CORRIDOR — ${sec.name}`, {
           ...titleStyle,
           color: '#4ade80',
         }).setOrigin(0.5, 0)
       );
 
       // 4. Mediterranean Sea Borders (2 Sides: IN to Europe, OUT of Africa)
-      const eurSouthBorderText = this.add.text(sec.x, 648, '▼ BORDER IN TO EUROPE — MEDITERRANEAN ENTRY CHECKPOINT', {
+      const eurSouthBorderText = this.add.text(sec.x, 1590, '▼ BORDER IN TO EUROPE — MEDITERRANEAN ENTRY CHECKPOINT', {
         ...borderStyle,
         color: '#4ade80',
         backgroundColor: '#064e3bee',
       }).setOrigin(0.5, 1);
       this.labelsContainer.add(eurSouthBorderText);
 
-      const medSeaText = this.add.text(sec.x, 760, '🌊 MEDITERRANEAN SEA WATERS — CROSS-BORDER BOAT CORRIDOR', {
+      const medSeaText = this.add.text(sec.x, 1725, '🌊 MEDITERRANEAN SEA WATERS — CROSS-BORDER BOAT CORRIDOR', {
         ...borderStyle,
         fontSize: '11px',
         color: '#fde047',
@@ -530,7 +627,7 @@ export class BrokeScene extends Phaser.Scene {
       }).setOrigin(0.5, 0.5);
       this.labelsContainer.add(medSeaText);
 
-      const afrBorderText = this.add.text(sec.x, 872, '▲ BORDER OUT OF AFRICA — MARITIME DEPARTURE BORDER', {
+      const afrBorderText = this.add.text(sec.x, 1860, '▲ BORDER OUT OF AFRICA — MARITIME DEPARTURE BORDER', {
         ...borderStyle,
         color: '#fb923c',
         backgroundColor: '#7c2d12ee',
@@ -539,7 +636,7 @@ export class BrokeScene extends Phaser.Scene {
 
       // 5. North Africa Region Title
       this.labelsContainer.add(
-        this.add.text(sec.x, 885, `🌍 NORTH AFRICA — ${sec.name}`, {
+        this.add.text(sec.x, 1880, `🌍 NORTH AFRICA — ${sec.name}`, {
           ...titleStyle,
           color: '#fb923c',
         }).setOrigin(0.5, 0)
@@ -603,6 +700,7 @@ export class BrokeScene extends Phaser.Scene {
         this.selectedLocationId = null;
         this.selectedRouteId = null;
         this.selectedVoyageId = null;
+        this.selectedCorridorBundleId = null;
         this.renderWorld(this.currentSnapshot);
         if (this.eventsHandler.onDeselectAll) {
           this.eventsHandler.onDeselectAll();
@@ -612,18 +710,39 @@ export class BrokeScene extends Phaser.Scene {
 
     this.input.on('wheel', (pointer: Phaser.Input.Pointer, _obj: unknown, _dx: number, dy: number) => {
       const cam = this.cameras.main;
-      const zoomFactor = dy > 0 ? 0.9 : 1.12;
-      const newZoom = Phaser.Math.Clamp(cam.zoom * zoomFactor, 0.2, 2.5);
+      const zoomFactor = dy > 0 ? 0.90 : 1.12;
 
-      const mouseWorldX = (pointer.x - cam.width / 2) / cam.zoom + cam.midPoint.x;
-      const mouseWorldY = (pointer.y - cam.height / 2) / cam.zoom + cam.midPoint.y;
-
-      cam.setZoom(newZoom);
-      cam.centerOn(mouseWorldX, mouseWorldY);
-      const targetMidX = mouseWorldX - (pointer.x - cam.width / 2) / newZoom;
-      const targetMidY = mouseWorldY - (pointer.y - cam.height / 2) / newZoom;
-      cam.centerOn(targetMidX, targetMidY);
+      if (this.viewMode === 'REGION') {
+        const nextZoom = cam.zoom * zoomFactor;
+        // User zooming out in Region View: if zoom drops below threshold, smoothly exit to Geo View!
+        if (nextZoom < 0.40) {
+          this.switchToGeoView();
+          return;
+        }
+        const newZoom = Phaser.Math.Clamp(nextZoom, 0.42, 1.40);
+        this.applyZoomAtPointer(cam, pointer, newZoom);
+      } else {
+        // Geo View: strategic macro zoom with limited clamping
+        const nextZoom = cam.zoom * zoomFactor;
+        const newZoom = Phaser.Math.Clamp(nextZoom, 0.18, 0.45);
+        this.applyZoomAtPointer(cam, pointer, newZoom);
+      }
     });
+  }
+
+  private applyZoomAtPointer(
+    cam: Phaser.Cameras.Scene2D.Camera,
+    pointer: Phaser.Input.Pointer,
+    newZoom: number
+  ) {
+    const mouseWorldX = (pointer.x - cam.width / 2) / cam.zoom + cam.midPoint.x;
+    const mouseWorldY = (pointer.y - cam.height / 2) / cam.zoom + cam.midPoint.y;
+
+    cam.setZoom(newZoom);
+    cam.centerOn(mouseWorldX, mouseWorldY);
+    const targetMidX = mouseWorldX - (pointer.x - cam.width / 2) / newZoom;
+    const targetMidY = mouseWorldY - (pointer.y - cam.height / 2) / newZoom;
+    cam.centerOn(targetMidX, targetMidY);
   }
 
   toggleInfluence(): boolean {
@@ -798,7 +917,11 @@ export class BrokeScene extends Phaser.Scene {
   focusLocation(locId: string) {
     const loc = this.currentSnapshot.locations[locId];
     if (loc) {
-      this.cameras.main.pan(loc.x, loc.y, 500, 'Cubic.easeOut');
+      if (loc.kind === 'HQ') {
+        this.switchToRegionView(loc.id);
+      } else {
+        this.cameras.main.pan(loc.x, loc.y, 500, 'Cubic.easeOut');
+      }
     }
   }
 
@@ -819,6 +942,114 @@ export class BrokeScene extends Phaser.Scene {
     }
   }
 
+  getViewMode(): 'GEO' | 'REGION' {
+    return this.viewMode;
+  }
+
+  getActiveRegionHqId(): string | null {
+    return this.activeRegionHqId;
+  }
+
+  switchToGeoView(): void {
+    this.viewMode = 'GEO';
+    this.activeRegionHqId = null;
+    this.selectedCorridorBundleId = null;
+    this.selectedRouteId = null;
+    this.selectedLocationId = null;
+    this.selectedVoyageId = null;
+    this.lastBackdropSignature = '';
+
+    // Clean previous graphics, hit zones, and vehicles to prevent ghosting
+    this.routesGfx.clear();
+    this.connectionsGfx.clear();
+    this.cleanupTrunkHitZones();
+    for (const zone of this.routeHitZones.values()) {
+      zone.destroy();
+    }
+    this.routeHitZones.clear();
+    for (const sprite of this.vehicleSprites.values()) {
+      sprite.destroy();
+    }
+    this.vehicleSprites.clear();
+
+    this.cameras.main.removeBounds();
+    this.cameras.main.pan(2100, 1100, 500, 'Cubic.easeOut');
+    this.cameras.main.zoomTo(0.30, 500, 'Cubic.easeOut');
+    this.renderWorld(this.currentSnapshot);
+    if (this.eventsHandler.onViewModeChanged) {
+      this.eventsHandler.onViewModeChanged('GEO', null);
+    }
+  }
+
+  switchToRegionView(hqId: string): void {
+    const hq = this.currentSnapshot.locations[hqId];
+    if (!hq || hq.kind !== 'HQ') return;
+
+    this.viewMode = 'REGION';
+    this.activeRegionHqId = hqId;
+    this.selectedCorridorBundleId = null;
+    this.selectedRouteId = null;
+    this.selectedLocationId = hqId;
+    this.lastBackdropSignature = '';
+
+    // Clean previous graphics, hit zones, and vehicles to prevent ghosting
+    this.routesGfx.clear();
+    this.connectionsGfx.clear();
+    this.cleanupTrunkHitZones();
+    for (const zone of this.routeHitZones.values()) {
+      zone.destroy();
+    }
+    this.routeHitZones.clear();
+    for (const sprite of this.vehicleSprites.values()) {
+      sprite.destroy();
+    }
+    this.vehicleSprites.clear();
+
+    // Auto-select this HQ's gang so its nodes and operations are immediately visible
+    if (hq.gangId && !this.selectedGangIds.has(hq.gangId)) {
+      this.selectedGangIds.add(hq.gangId);
+    }
+
+    const radius = hq.influenceRadius || BASE_HQ_INFLUENCE_RADIUS;
+    const cropRadius = Math.round(radius * 1.45);
+    const bounds = REGION_BOUNDS[hq.region];
+
+    // Constrain camera scrolling tightly to this HQ's local operational theatre
+    const minX = hq.x - cropRadius - 120;
+    const maxX = hq.x + cropRadius + 120;
+    const minY = bounds ? bounds.yMin - 80 : hq.y - cropRadius - 80;
+    const maxY = bounds ? bounds.yMax + 80 : hq.y + cropRadius + 80;
+    this.cameras.main.setBounds(minX, minY, maxX - minX, maxY - minY);
+
+    // Pan and zoom centered DIRECTLY on THIS HQ:
+    this.cameras.main.pan(hq.x, hq.y, 500, 'Cubic.easeOut');
+    this.cameras.main.zoomTo(0.65, 500, 'Cubic.easeOut');
+    this.renderWorld(this.currentSnapshot);
+
+    const gang = this.currentSnapshot.gangs[hq.gangId];
+    if (gang && this.eventsHandler.onSelectGang) {
+      this.eventsHandler.onSelectGang(gang, this.currentSnapshot);
+    }
+    if (this.eventsHandler.onSelectLocation) {
+      this.eventsHandler.onSelectLocation(hq, this.currentSnapshot);
+    }
+    if (this.eventsHandler.onViewModeChanged) {
+      this.eventsHandler.onViewModeChanged('REGION', hq);
+    }
+  }
+
+  selectCorridorBundle(bundleId: string): void {
+    this.selectedCorridorBundleId = bundleId;
+    this.selectedRouteId = null;
+    this.selectedLocationId = null;
+    this.selectedVoyageId = null;
+    const bundle = this.corridorBundles.get(bundleId);
+    if (bundle && this.eventsHandler.onSelectCorridorBundle) {
+      this.eventsHandler.onSelectCorridorBundle(bundle, this.currentSnapshot);
+    }
+    this.renderWorld(this.currentSnapshot);
+  }
+
   // ==================== RENDERING PIPELINE ====================
   renderWorld(snapshot: WorldSnapshot) {
     if (!this.isSceneReady || !this.bgGfx || !this.influenceGfxUk || !this.nodesContainer) {
@@ -826,10 +1057,16 @@ export class BrokeScene extends Phaser.Scene {
     }
     if (snapshot.tick === 0) {
       this.lastHqSignature = '';
+      this.lastBackdropSignature = '';
       this.cancelPlacementMode();
       this.selectedVoyageId = null;
       this.selectedRouteId = null;
       this.selectedLocationId = null;
+    }
+    const backdropSig = `${this.viewMode}|${this.activeRegionHqId}`;
+    if (backdropSig !== this.lastBackdropSignature) {
+      this.lastBackdropSignature = backdropSig;
+      this.renderRegionsBackdrop(snapshot);
     }
     this.renderInfluenceHeatmap(snapshot);
     this.renderPhysicalConnections(snapshot);
@@ -840,7 +1077,7 @@ export class BrokeScene extends Phaser.Scene {
 
   private renderInfluenceHeatmap(snapshot: WorldSnapshot) {
     const hqs = Object.values(snapshot.locations).filter((l) => l.kind === 'HQ');
-    const hqSig = `${this.isInfluenceZoneVisible}|${Array.from(this.selectedGangIds).sort().join(',')}|${hqs.map((h) => `${h.id}:${h.x}:${h.y}:${h.gangId}:${Math.round(h.influenceRadius || 220)}`).sort().join(';')}`;
+    const hqSig = `${this.viewMode}|${this.activeRegionHqId}|${this.isInfluenceZoneVisible}|${Array.from(this.selectedGangIds).sort().join(',')}|${hqs.map((h) => `${h.id}:${h.x}:${h.y}:${h.gangId}:${Math.round(h.influenceRadius || 220)}`).sort().join(';')}`;
 
     if (hqSig === this.lastHqSignature) {
       return;
@@ -862,6 +1099,7 @@ export class BrokeScene extends Phaser.Scene {
     };
 
     const activeGangs = Object.values(snapshot.gangs).filter((g) => g.status === 'ACTIVE');
+    const activeHq = this.viewMode === 'REGION' && this.activeRegionHqId ? snapshot.locations[this.activeRegionHqId] : null;
 
     for (const gang of activeGangs) {
       const isSelected = this.selectedGangIds.has(gang.id);
@@ -869,12 +1107,16 @@ export class BrokeScene extends Phaser.Scene {
       const alphaMultiplier = isSelected ? 1.0 : (isAnySelected ? 0.35 : 0.85);
 
       // Find all HQs for this gang
-      const hqs = Object.values(snapshot.locations).filter(
+      const gangHqs = Object.values(snapshot.locations).filter(
         (l) => l.gangId === gang.id && l.kind === 'HQ'
       );
 
       // 1. Draw concentric dissipation rings for each HQ
-      for (const hq of hqs) {
+      for (const hq of gangHqs) {
+        // In Region View: crop other regions' heatmaps! Only render for active operational theatre
+        if (activeHq && (hq.region !== activeHq.region || Math.hypot(hq.x - activeHq.x, hq.y - activeHq.y) > (hq.influenceRadius || BASE_HQ_INFLUENCE_RADIUS) * 2)) {
+          continue;
+        }
         const gfx = gfxByRegion[hq.region];
         if (!gfx) continue;
 
@@ -915,7 +1157,8 @@ export class BrokeScene extends Phaser.Scene {
       // RULE: "2 hq influence zones, same gang, increase the influence"
       const regions: RegionId[] = ['UK', 'EUROPE', 'AFRICA'];
       for (const reg of regions) {
-        const regHqs = hqs.filter((h) => h.region === reg);
+        if (activeHq && reg !== activeHq.region) continue;
+        const regHqs = gangHqs.filter((h) => h.region === reg);
         if (regHqs.length >= 2) {
           const gfx = gfxByRegion[reg];
           if (!gfx) continue;
@@ -954,109 +1197,207 @@ export class BrokeScene extends Phaser.Scene {
     }
   }
 
-  private renderRegionsBackdrop(_snapshot?: WorldSnapshot) {
-    if (!this.bgGfx || !this.borderGfx) return;
+  private renderRegionsBackdrop(snapshot?: WorldSnapshot) {
+    if (!this.bgGfx || !this.borderGfx || !this.regionCropGfx) return;
     const gfx = this.bgGfx;
+    const bgBorder = this.borderGfx;
     gfx.clear();
+    bgBorder.clear();
+    this.regionCropGfx.clear();
 
     const worldW = 4600;
     const startX = -300;
 
-    // 1. UK Land Region (North: y: -100 to 160) - Oceanic Navy atmospheric tint
-    gfx.fillStyle(0x0c1b2e, 0.22);
-    gfx.fillRect(startX, REGION_BOUNDS.UK.yMin, worldW, REGION_BOUNDS.UK.yMax - REGION_BOUNDS.UK.yMin);
+    const snap = snapshot || this.currentSnapshot;
+    const activeHq = this.viewMode === 'REGION' && this.activeRegionHqId && snap ? snap.locations[this.activeRegionHqId] : null;
 
-    // 2. West Europe Land Region (Middle: y: 215 to 485) - Slate / Pine atmospheric tint
-    gfx.fillStyle(0x0d2222, 0.18);
-    gfx.fillRect(startX, REGION_BOUNDS.EUROPE.yMin, worldW, REGION_BOUNDS.EUROPE.yMax - REGION_BOUNDS.EUROPE.yMin);
+    if (this.viewMode === 'GEO' || !activeHq) {
+      // GEO VIEW: Show all regions, floors, borders, and labels across the globe
+      this.floorTile.setVisible(true);
+      this.ukFloorTile.setVisible(true);
+      this.europeFloorTile.setVisible(true);
+      this.africaFloorTile.setVisible(true);
+      this.channelWaterTile.setVisible(true);
+      this.medWaterTile.setVisible(true);
 
-    // 3. North Africa Land Region (South: y: 565 to 820) - Warm Clay / Amber atmospheric tint
-    gfx.fillStyle(0x291910, 0.22);
-    gfx.fillRect(startX, REGION_BOUNDS.AFRICA.yMin, worldW, REGION_BOUNDS.AFRICA.yMax - REGION_BOUNDS.AFRICA.yMin);
+      // Land Region atmospheric tints
+      gfx.fillStyle(0x0c1b2e, 0.22);
+      gfx.fillRect(startX, REGION_BOUNDS.UK.yMin, worldW, REGION_BOUNDS.UK.yMax - REGION_BOUNDS.UK.yMin);
+      gfx.fillStyle(0x0d2222, 0.18);
+      gfx.fillRect(startX, REGION_BOUNDS.EUROPE.yMin, worldW, REGION_BOUNDS.EUROPE.yMax - REGION_BOUNDS.EUROPE.yMin);
+      gfx.fillStyle(0x291910, 0.22);
+      gfx.fillRect(startX, REGION_BOUNDS.AFRICA.yMin, worldW, REGION_BOUNDS.AFRICA.yMax - REGION_BOUNDS.AFRICA.yMin);
 
-    // Subtle grid lines on land regions
-    gfx.lineStyle(1, 0x0f172a, 0.25);
-    for (let x = startX; x <= startX + worldW; x += 64) {
-      gfx.lineBetween(x, REGION_BOUNDS.UK.yMin, x, REGION_BOUNDS.UK.yMax);
-      gfx.lineBetween(x, REGION_BOUNDS.EUROPE.yMin, x, REGION_BOUNDS.EUROPE.yMax);
-      gfx.lineBetween(x, REGION_BOUNDS.AFRICA.yMin, x, REGION_BOUNDS.AFRICA.yMax);
+      // Subtle grid lines
+      gfx.lineStyle(1, 0x0f172a, 0.25);
+      for (let x = startX; x <= startX + worldW; x += 64) {
+        gfx.lineBetween(x, REGION_BOUNDS.UK.yMin, x, REGION_BOUNDS.UK.yMax);
+        gfx.lineBetween(x, REGION_BOUNDS.EUROPE.yMin, x, REGION_BOUNDS.EUROPE.yMax);
+        gfx.lineBetween(x, REGION_BOUNDS.AFRICA.yMin, x, REGION_BOUNDS.AFRICA.yMax);
+      }
+
+      // Full-length Channel and Mediterranean borders
+      this.drawFullChannelBorders(startX, worldW);
+      this.drawFullMediterraneanBorders(startX, worldW);
+      this.updateStaticRegionLabels('GEO', null);
+    } else {
+      // REGION VIEW: CROP OUT OTHER REGIONS! Only show local operational theatre around active HQ
+      this.floorTile.setVisible(false);
+      this.ukFloorTile.setVisible(activeHq.region === 'UK');
+      this.europeFloorTile.setVisible(activeHq.region === 'EUROPE');
+      this.africaFloorTile.setVisible(activeHq.region === 'AFRICA');
+      this.channelWaterTile.setVisible(activeHq.region === 'UK' || activeHq.region === 'EUROPE');
+      this.medWaterTile.setVisible(activeHq.region === 'EUROPE' || activeHq.region === 'AFRICA');
+
+      const bounds = REGION_BOUNDS[activeHq.region];
+      const radius = activeHq.influenceRadius || BASE_HQ_INFLUENCE_RADIUS;
+      const cropRadius = Math.round(radius * 1.45);
+
+      const localLeft = activeHq.x - cropRadius;
+      const localRight = activeHq.x + cropRadius;
+      const localW = cropRadius * 2;
+      const yMin = bounds.yMin;
+      const yMax = bounds.yMax;
+      const yHeight = yMax - yMin;
+
+      // Local land tint
+      const regColor = activeHq.region === 'UK' ? 0x0c1b2e : activeHq.region === 'EUROPE' ? 0x0d2222 : 0x291910;
+      gfx.fillStyle(regColor, 0.35);
+      gfx.fillRect(localLeft, yMin, localW, yHeight);
+
+      // Local grid lines within operational bounds
+      gfx.lineStyle(1, 0x1e293b, 0.35);
+      for (let x = localLeft; x <= localRight; x += 64) {
+        gfx.lineBetween(x, yMin, x, yMax);
+      }
+
+      // Local maritime borders if adjacent to sea
+      if (activeHq.region === 'UK') {
+        this.drawLocalBorderLine(localLeft, localRight, 200, 0x0284c7, 0x38bdf8, 198);
+      } else if (activeHq.region === 'EUROPE') {
+        this.drawLocalBorderLine(localLeft, localRight, 400, 0x059669, 0x4ade80, 402);
+        this.drawLocalBorderLine(localLeft, localRight, 1600, 0x059669, 0x4ade80, 1598);
+      } else if (activeHq.region === 'AFRICA') {
+        this.drawLocalBorderLine(localLeft, localRight, 1850, 0xd97706, 0xfb923c, 1852);
+      }
+
+      // DARK VOID CROP MASK (regionCropGfx at depth 1.8)
+      // Crop out other regions & crop stuff beyond local operational bounds
+      const bigW = 8000;
+      const bigH = 8000;
+      this.regionCropGfx.fillStyle(0x080c14, 0.98);
+      // West void
+      this.regionCropGfx.fillRect(localLeft - bigW, -4000, bigW, bigH * 2);
+      // East void
+      this.regionCropGfx.fillRect(localRight, -4000, bigW, bigH * 2);
+      // North void (other regions above)
+      this.regionCropGfx.fillRect(localLeft - 200, yMin - bigH, localW + 400, bigH);
+      // South void (other regions below)
+      this.regionCropGfx.fillRect(localLeft - 200, yMax, localW + 400, bigH);
+
+      // Operational theatre perimeter frame
+      this.regionCropGfx.lineStyle(2, 0x334155, 0.85);
+      this.regionCropGfx.strokeRect(localLeft, yMin, localW, yHeight);
+
+      // Horizon crop circle strictly clipped to region bounds
+      this.regionCropGfx.lineStyle(1.5, 0x475569, 0.5);
+      drawClippedCircle(this.regionCropGfx, activeHq.x, activeHq.y, cropRadius, bounds.yMin, bounds.yMax, true);
+
+      // Core influence boundary line strictly clipped to region bounds (delimits full color core vs greyscale periphery)
+      this.regionCropGfx.lineStyle(1.5, 0x64748b, 0.7);
+      drawClippedCircle(this.regionCropGfx, activeHq.x, activeHq.y, radius, bounds.yMin, bounds.yMax, true);
+
+      this.updateStaticRegionLabels('REGION', activeHq);
     }
+  }
 
-    // High-visibility Regional 2-Sided Borders
+  private drawLocalBorderLine(
+    startX: number,
+    endX: number,
+    y: number,
+    solidColor: number,
+    stripeColor: number,
+    stripeY: number
+  ) {
     const bgBorder = this.borderGfx;
-    bgBorder.clear();
+    const w = endX - startX;
+    bgBorder.fillStyle(solidColor, 0.45);
+    bgBorder.fillRect(startX, y - 3, w, 6);
+    bgBorder.lineStyle(3, solidColor, 0.95);
+    bgBorder.lineBetween(startX, y, endX, y);
+    bgBorder.lineStyle(2, stripeColor, 0.85);
+    for (let x = startX; x < endX; x += 24) {
+      bgBorder.lineBetween(x, stripeY, Math.min(x + 14, endX), stripeY);
+    }
+  }
 
-    // ==========================================
-    // CHANNEL BORDERS (2 SIDES: IN TO UK, OUT OF EUROPE)
-    // ==========================================
-    // North Side: Border IN to UK (y: 140)
+  private drawFullChannelBorders(startX: number, worldW: number) {
+    const bgBorder = this.borderGfx;
     bgBorder.fillStyle(0x0c4a6e, 0.45);
-    bgBorder.fillRect(startX, 134, worldW, 6);
+    bgBorder.fillRect(startX, 194, worldW, 6);
     bgBorder.lineStyle(3, 0x0284c7, 0.95);
-    bgBorder.lineBetween(startX, 140, startX + worldW, 140);
-    // Dashed security stripe on UK side
+    bgBorder.lineBetween(startX, 200, startX + worldW, 200);
     bgBorder.lineStyle(2, 0x38bdf8, 0.85);
     for (let x = startX; x < startX + worldW; x += 24) {
-      bgBorder.lineBetween(x, 138, x + 14, 138);
+      bgBorder.lineBetween(x, 198, x + 14, 198);
     }
-    // Water shoreline foam line (water side at y = 141)
     bgBorder.lineStyle(1.5, 0xbae6fd, 0.55);
-    bgBorder.lineBetween(startX, 141, startX + worldW, 141);
+    bgBorder.lineBetween(startX, 201, startX + worldW, 201);
 
-    // South Side: Border OUT of Europe (y: 280)
     bgBorder.fillStyle(0x064e3b, 0.45);
-    bgBorder.fillRect(startX, 280, worldW, 6);
+    bgBorder.fillRect(startX, 400, worldW, 6);
     bgBorder.lineStyle(3, 0x059669, 0.95);
-    bgBorder.lineBetween(startX, 280, startX + worldW, 280);
-    // Dashed hazard stripe on European side
+    bgBorder.lineBetween(startX, 400, startX + worldW, 400);
     bgBorder.lineStyle(2, 0x4ade80, 0.85);
     for (let x = startX; x < startX + worldW; x += 24) {
-      bgBorder.lineBetween(x, 282, x + 14, 282);
+      bgBorder.lineBetween(x, 402, x + 14, 402);
     }
-    // Water shoreline foam line (water side at y = 279)
     bgBorder.lineStyle(1.5, 0xa7f3d0, 0.55);
-    bgBorder.lineBetween(startX, 279, startX + worldW, 279);
+    bgBorder.lineBetween(startX, 399, startX + worldW, 399);
+  }
 
-    // ==========================================
-    // MEDITERRANEAN BORDERS (2 SIDES: IN TO EUROPE, OUT OF AFRICA)
-    // ==========================================
-    // North Side: Border IN to Europe (y: 660)
+  private drawFullMediterraneanBorders(startX: number, worldW: number) {
+    const bgBorder = this.borderGfx;
     bgBorder.fillStyle(0x064e3b, 0.45);
-    bgBorder.fillRect(startX, 654, worldW, 6);
+    bgBorder.fillRect(startX, 1594, worldW, 6);
     bgBorder.lineStyle(3, 0x059669, 0.95);
-    bgBorder.lineBetween(startX, 660, startX + worldW, 660);
-    // Dashed Schengen security line
+    bgBorder.lineBetween(startX, 1600, startX + worldW, 1600);
     bgBorder.lineStyle(2, 0x4ade80, 0.85);
     for (let x = startX; x < startX + worldW; x += 24) {
-      bgBorder.lineBetween(x, 658, x + 14, 658);
+      bgBorder.lineBetween(x, 1598, x + 14, 1598);
     }
-    // Shoreline foam line (water side at y = 661)
     bgBorder.lineStyle(1.5, 0xa7f3d0, 0.55);
-    bgBorder.lineBetween(startX, 661, startX + worldW, 661);
+    bgBorder.lineBetween(startX, 1601, startX + worldW, 1601);
 
-    // South Side: Border OUT of Africa (y: 860)
     bgBorder.fillStyle(0x7c2d12, 0.45);
-    bgBorder.fillRect(startX, 860, worldW, 6);
+    bgBorder.fillRect(startX, 1850, worldW, 6);
     bgBorder.lineStyle(3, 0xd97706, 0.95);
-    bgBorder.lineBetween(startX, 860, startX + worldW, 860);
-    // Dashed departure perimeter stripe
+    bgBorder.lineBetween(startX, 1850, startX + worldW, 1850);
     bgBorder.lineStyle(2, 0xfb923c, 0.85);
     for (let x = startX; x < startX + worldW; x += 24) {
-      bgBorder.lineBetween(x, 862, x + 14, 862);
+      bgBorder.lineBetween(x, 1852, x + 14, 1852);
     }
-    // Shoreline foam line (water side at y = 859)
     bgBorder.lineStyle(1.5, 0xfde68a, 0.55);
-    bgBorder.lineBetween(startX, 859, startX + worldW, 859);
+    bgBorder.lineBetween(startX, 1849, startX + worldW, 1849);
   }
 
   private renderPhysicalConnections(snapshot: WorldSnapshot) {
     const gfx = this.connectionsGfx;
     gfx.clear();
 
+    // Discrete Zoom View: Regional physical connections are hidden in GEO View
+    if (this.viewMode === 'GEO') {
+      return;
+    }
+
     // If no gang selected, connections are hidden
     if (this.selectedGangIds.size === 0) {
       return;
     }
+
+    const activeHq = this.viewMode === 'REGION' && this.activeRegionHqId ? snapshot.locations[this.activeRegionHqId] : null;
+    const radius = activeHq ? (activeHq.influenceRadius || BASE_HQ_INFLUENCE_RADIUS) : 0;
+    const cropRadius = Math.round(radius * 1.45);
 
     // Only draw connections belonging to selected gangs
     for (const conn of Object.values(snapshot.connections)) {
@@ -1065,10 +1406,29 @@ export class BrokeScene extends Phaser.Scene {
       if (!src || !tgt) continue;
       if (!this.selectedGangIds.has(src.gangId) || !this.selectedGangIds.has(tgt.gangId)) continue;
 
-      if (conn.mode === 'SEA') {
-        gfx.lineStyle(2, 0x0284c7, 0.35);
+      if (activeHq) {
+        // Crop out connections belonging to other regions
+        if (src.region !== activeHq.region && tgt.region !== activeHq.region) continue;
+        const srcDist = Math.hypot(src.x - activeHq.x, src.y - activeHq.y);
+        const tgtDist = Math.hypot(tgt.x - activeHq.x, tgt.y - activeHq.y);
+        // Crop connections too far beyond influence zone
+        if (srcDist > cropRadius && tgtDist > cropRadius) continue;
+
+        const isPeriphery = srcDist > radius || tgtDist > radius;
+        if (isPeriphery) {
+          // Greyscale periphery connection
+          gfx.lineStyle(1.5, 0x475569, 0.25);
+        } else if (conn.mode === 'SEA') {
+          gfx.lineStyle(2, 0x0284c7, 0.35);
+        } else {
+          gfx.lineStyle(2, 0x475569, 0.4);
+        }
       } else {
-        gfx.lineStyle(2, 0x475569, 0.4);
+        if (conn.mode === 'SEA') {
+          gfx.lineStyle(2, 0x0284c7, 0.35);
+        } else {
+          gfx.lineStyle(2, 0x475569, 0.4);
+        }
       }
       gfx.lineBetween(src.x, src.y, tgt.x, tgt.y);
     }
@@ -1088,6 +1448,8 @@ export class BrokeScene extends Phaser.Scene {
       }
     }
 
+    const activeHq = this.activeRegionHqId ? snapshot.locations[this.activeRegionHqId] : null;
+
     for (const loc of Object.values(snapshot.locations)) {
       let container = this.locationContainers.get(loc.id);
       if (!container) {
@@ -1096,8 +1458,50 @@ export class BrokeScene extends Phaser.Scene {
         this.nodesContainer.add(container);
       }
 
-      // Visibility Rule:
-      // Show owned nodes of currently selected gangs, AND candidate nodes discovered by selected gangs!
+      // Discrete Zoom View Level Rules:
+      // 1. GEO View: ONLY show HQ nodes! All operational and candidate nodes are abstracted into HQs.
+      if (this.viewMode === 'GEO') {
+        const isHq = loc.kind === 'HQ';
+        const isHqVisible = isHq && (this.selectedGangIds.has(loc.gangId) || this.selectedGangIds.size === 0);
+        container.setVisible(isHqVisible);
+
+        const hitZone = container.list.find((obj) => obj instanceof Phaser.GameObjects.Zone) as Phaser.GameObjects.Zone | undefined;
+        if (hitZone && hitZone.input) {
+          hitZone.input.enabled = isHqVisible;
+        }
+
+        if (isHqVisible) {
+          this.updateLocationNode(container, loc, snapshot, false);
+        }
+        continue;
+      }
+
+      // 2. REGION View: Show detailed nodes belonging to active HQ
+      // Crop out other regions!
+      if (!activeHq || loc.region !== activeHq.region) {
+        container.setVisible(false);
+        const hitZone = container.list.find((obj) => obj instanceof Phaser.GameObjects.Zone) as Phaser.GameObjects.Zone | undefined;
+        if (hitZone && hitZone.input) {
+          hitZone.input.enabled = false;
+        }
+        continue;
+      }
+
+      const radius = activeHq.influenceRadius || BASE_HQ_INFLUENCE_RADIUS;
+      const cropRadius = Math.round(radius * 1.45);
+      const dist = Math.hypot(loc.x - activeHq.x, loc.y - activeHq.y);
+
+      // Crop stuff too far beyond the influence zone of selected HQ
+      if (dist > cropRadius) {
+        container.setVisible(false);
+        const hitZone = container.list.find((obj) => obj instanceof Phaser.GameObjects.Zone) as Phaser.GameObjects.Zone | undefined;
+        if (hitZone && hitZone.input) {
+          hitZone.input.enabled = false;
+        }
+        continue;
+      }
+
+      // Inside active region theatre: show owned nodes and candidate sites (prospects)
       const isCandidate = loc.operationalStatus === 'DISCOVERED_CANDIDATE';
       const isOwned = loc.gangId !== 'NEUTRAL' && !isCandidate;
       const isCandidateVisible = isCandidate && (!loc.discoveredByGangId || this.selectedGangIds.has(loc.discoveredByGangId) || this.selectedGangIds.size === 0);
@@ -1111,7 +1515,8 @@ export class BrokeScene extends Phaser.Scene {
       }
 
       if (isVisible) {
-        this.updateLocationNode(container, loc, snapshot);
+        const isBeyondInfluence = dist > radius;
+        this.updateLocationNode(container, loc, snapshot, isBeyondInfluence);
       }
     }
   }
@@ -1129,6 +1534,7 @@ export class BrokeScene extends Phaser.Scene {
     if (this.textures.exists(spriteKey)) {
       const scale = getRegionalNodeSpriteScale(spriteKey);
       const sprite = this.add.sprite(0, -6, spriteKey);
+      sprite.setName('nodeSprite');
       sprite.setScale(scale);
       sprite.setOrigin(0.5, 0.65);
       container.add(sprite);
@@ -1148,6 +1554,7 @@ export class BrokeScene extends Phaser.Scene {
             });
           }
           const sprite = this.add.sprite(0, -6, tileKey);
+          sprite.setName('nodeSprite');
           sprite.setScale(0.46);
           sprite.play(animKey);
           container.add(sprite);
@@ -1162,6 +1569,7 @@ export class BrokeScene extends Phaser.Scene {
             });
           }
           const sprite = this.add.sprite(0, -6, tileKey);
+          sprite.setName('nodeSprite');
           sprite.setScale(0.32);
           sprite.play(animKey);
           container.add(sprite);
@@ -1176,17 +1584,20 @@ export class BrokeScene extends Phaser.Scene {
             });
           }
           const sprite = this.add.sprite(0, -4, tileKey);
+          sprite.setName('nodeSprite');
           sprite.setScale(0.35);
           sprite.play(animKey);
           container.add(sprite);
         } else {
           // Depot node: pressure-tank mk1 (1 frame)
           const sprite = this.add.sprite(0, -4, tileKey, 0);
+          sprite.setName('nodeSprite');
           sprite.setScale(0.35);
           container.add(sprite);
         }
       } else if (this.textures.exists(`icon_${loc.tileFamily}`)) {
         const icon = this.add.image(0, -4, `icon_${loc.tileFamily}`);
+        icon.setName('nodeIcon');
         icon.setScale(0.7);
         container.add(icon);
       }
@@ -1202,6 +1613,7 @@ export class BrokeScene extends Phaser.Scene {
       strokeThickness: 1.5,
       align: 'center',
     });
+    nameText.setName('nameText');
     nameText.setOrigin(0.5, 0);
     nameText.setResolution(2);
     container.add(nameText);
@@ -1223,18 +1635,32 @@ export class BrokeScene extends Phaser.Scene {
     container.add(countText);
 
     // Interactive Hit Zone
-    const hitZone = this.add.zone(0, 0, 76, 76);
-    hitZone.setInteractive({ cursor: 'pointer' });
+    const hitZone = this.add.zone(0, 0, 96, 96);
+    hitZone.setInteractive(
+      new Phaser.Geom.Rectangle(-48, -48, 96, 96),
+      Phaser.Geom.Rectangle.Contains
+    );
+    if (hitZone.input) {
+      hitZone.input.cursor = 'pointer';
+    }
     hitZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.leftButtonDown()) {
         this.justSelectedInteractiveObject = true;
+        this.isDragging = false;
         this.selectedLocationId = loc.id;
         this.selectedRouteId = null;
         this.selectedVoyageId = null;
+        this.selectedCorridorBundleId = null;
         if (loc.gangId) {
           this.selectedGangIds.add(loc.gangId);
         }
-        this.renderWorld(this.currentSnapshot);
+
+        // Clicking an HQ: ALWAYS go to regional view FOR THAT HQ, centered on it!
+        if (loc.kind === 'HQ') {
+          this.switchToRegionView(loc.id);
+        } else {
+          this.renderWorld(this.currentSnapshot);
+        }
         const gang = this.currentSnapshot.gangs[loc.gangId];
         if (gang && this.eventsHandler.onSelectGang) {
           this.eventsHandler.onSelectGang(gang, this.currentSnapshot);
@@ -1246,18 +1672,22 @@ export class BrokeScene extends Phaser.Scene {
     });
     container.add(hitZone);
 
-    this.updateLocationNode(container, loc, snapshot);
+    this.updateLocationNode(container, loc, snapshot, false);
     return container;
   }
 
   private updateLocationNode(
     container: Phaser.GameObjects.Container,
     loc: LocationDef,
-    snapshot: WorldSnapshot
+    snapshot: WorldSnapshot,
+    isBeyondInfluence = false
   ) {
     const baseGfx = container.getByName('baseGfx') as Phaser.GameObjects.Graphics;
     const badgeGfx = container.getByName('badgeGfx') as Phaser.GameObjects.Graphics;
     const countText = container.getByName('countText') as Phaser.GameObjects.Text;
+    const sprite = (container.getByName('nodeSprite') || container.list.find((obj) => obj instanceof Phaser.GameObjects.Sprite)) as Phaser.GameObjects.Sprite | undefined;
+    const nameText = (container.getByName('nameText') || container.list.find((obj) => obj instanceof Phaser.GameObjects.Text && obj.name !== 'countText')) as Phaser.GameObjects.Text | undefined;
+
     if (!baseGfx || !badgeGfx || !countText) return;
 
     baseGfx.clear();
@@ -1265,104 +1695,177 @@ export class BrokeScene extends Phaser.Scene {
 
     const isSelected = this.selectedLocationId === loc.id;
     const gang = snapshot.gangs[loc.gangId];
-    const strokeColor = gang ? gang.colorNum : 0x475569;
-
-    // Foundation Base Box / Isometric Ground Footprint
-    baseGfx.fillStyle(0x0a0f1d, 0.72);
-    baseGfx.fillEllipse(0, 16, 76, 38);
-
     const isCandidate = loc.operationalStatus === 'DISCOVERED_CANDIDATE' || loc.gangId === 'NEUTRAL';
     const isUnstaffed = !isCandidate && !loc.assignedHoodId;
 
-    if (isSelected) {
-      // High-contrast gold halo for selected node
-      baseGfx.lineStyle(3.5, 0xfacc15, 1.0);
-      baseGfx.strokeEllipse(0, 16, 84, 42);
-      baseGfx.lineStyle(1.5, 0xffffff, 0.9);
-      baseGfx.strokeEllipse(0, 16, 78, 39);
-    } else if (isCandidate) {
-      baseGfx.lineStyle(2.5, 0x38bdf8, 0.85);
-      baseGfx.strokeEllipse(0, 16, 80, 40);
-    } else {
-      baseGfx.lineStyle(2, strokeColor, 0.9);
-      baseGfx.strokeEllipse(0, 16, 78, 39);
+    // Sprite greyscale tint
+    if (sprite) {
+      if (isBeyondInfluence) {
+        sprite.setTint(0x78716c);
+        sprite.setAlpha(0.65);
+      } else {
+        sprite.clearTint();
+        sprite.setAlpha(1.0);
+      }
     }
 
-    if (isCandidate) {
-      const remaining = loc.expiresAtTick !== undefined ? Math.max(0, loc.expiresAtTick - snapshot.tick) : null;
-      const timerStr = remaining !== null ? ` ⏳${remaining}t` : '';
-      countText.setText(`$${loc.candidateCost || 1500}${timerStr}`);
-      badgeGfx.fillStyle(0x0f172a, 0.92);
-      badgeGfx.fillRoundedRect(-44, -54, 88, 18, 4);
-      badgeGfx.lineStyle(1.5, 0x38bdf8, 0.9);
-      badgeGfx.strokeRoundedRect(-44, -54, 88, 18, 4);
-    } else if (isUnstaffed) {
-      countText.setText('⚠️ UNSTAFFED');
-      badgeGfx.fillStyle(0x451a03, 0.9);
-      badgeGfx.fillRoundedRect(-44, -54, 88, 18, 4);
-      badgeGfx.lineStyle(1.5, 0xf59e0b, 0.9);
-      badgeGfx.strokeRoundedRect(-44, -54, 88, 18, 4);
-    } else if (loc.kind === 'HQ' && gang) {
-      badgeGfx.fillStyle(gang.colorNum, 1);
-      badgeGfx.fillCircle(28, -28, 12);
-      badgeGfx.lineStyle(1.5, 0xffffff, 0.9);
-      badgeGfx.strokeCircle(28, -28, 12);
-
-      const hqLabel = loc.isMainHq ? '⭐ MAIN' : '⚡ HQ';
-      countText.setText(hqLabel);
-      badgeGfx.fillStyle(0x0f172a, 0.9);
-      badgeGfx.fillRoundedRect(-30, -54, 60, 18, 4);
-      badgeGfx.lineStyle(1.5, gang.colorNum, 0.9);
-      badgeGfx.strokeRoundedRect(-30, -54, 60, 18, 4);
+    // Nameplate text color
+    if (nameText) {
+      if (isBeyondInfluence) {
+        nameText.setColor('#94a3b8');
+      } else {
+        nameText.setColor('#f8fafc');
+      }
     }
 
-    if (loc.kind === 'RECRUITER') {
-      // Waiting Migrants at this Recruiter (crusher mk3)
-      const migrantsHere = Object.values(snapshot.migrants).filter(
-        (c) => c.originId === loc.id && (c.status === 'WAITING' || c.status === 'RECRUITED')
-      );
-
-      if (migrantsHere.length > 0) {
-        countText.setText(`👤 ${migrantsHere.length}`);
-        badgeGfx.fillStyle(0x0f172a, 0.9);
-        badgeGfx.fillRoundedRect(-24, -54, 48, 18, 4);
-        badgeGfx.lineStyle(1.5, gang ? gang.colorNum : 0x38bdf8, 0.85);
-        badgeGfx.strokeRoundedRect(-24, -54, 48, 18, 4);
+    // Foundation Base Box / Isometric Ground Footprint
+    if (isBeyondInfluence) {
+      baseGfx.fillStyle(0x0a0f1d, 0.4);
+      baseGfx.fillEllipse(0, 16, 76, 38);
+      if (isSelected) {
+        baseGfx.lineStyle(3, 0xfacc15, 0.9);
+        baseGfx.strokeEllipse(0, 16, 82, 41);
       } else {
-        countText.setText('');
+        baseGfx.lineStyle(1.5, 0x64748b, 0.6);
+        baseGfx.strokeEllipse(0, 16, 78, 39);
       }
-    } else if (loc.kind === 'DEPOT') {
-      // Arrived Migrants remaining safely in this Depot (pressure-tank mk1)
-      const migrantsHere = Object.values(snapshot.migrants).filter(
-        (c) => c.originId === loc.id && c.status === 'ARRIVED'
-      );
+    } else {
+      baseGfx.fillStyle(0x0a0f1d, 0.72);
+      baseGfx.fillEllipse(0, 16, 76, 38);
 
-      if (migrantsHere.length > 0) {
-        countText.setText(`📦 ${migrantsHere.length}`);
-        badgeGfx.fillStyle(0x0f172a, 0.9);
-        badgeGfx.fillRoundedRect(-24, -54, 48, 18, 4);
-        badgeGfx.lineStyle(1.5, 0x10b981, 0.85);
-        badgeGfx.strokeRoundedRect(-24, -54, 48, 18, 4);
+      const strokeColor = gang ? gang.colorNum : 0x475569;
+      if (isSelected) {
+        baseGfx.lineStyle(3.5, 0xfacc15, 1.0);
+        baseGfx.strokeEllipse(0, 16, 84, 42);
+        baseGfx.lineStyle(1.5, 0xffffff, 0.9);
+        baseGfx.strokeEllipse(0, 16, 78, 39);
+      } else if (isCandidate) {
+        baseGfx.lineStyle(2.5, 0x38bdf8, 0.85);
+        baseGfx.strokeEllipse(0, 16, 80, 40);
       } else {
-        countText.setText('');
+        baseGfx.lineStyle(2, strokeColor, 0.9);
+        baseGfx.strokeEllipse(0, 16, 78, 39);
       }
-    } else if (loc.kind === 'WORKSHOP') {
-      // Arrived Migrants stationed and working in this Workshop (industrial-press)
-      const migrantsHere = Object.values(snapshot.migrants).filter(
-        (c) => c.originId === loc.id && c.status === 'ARRIVED'
-      );
+    }
 
-      if (migrantsHere.length > 0) {
-        countText.setText(`⚙️ ${migrantsHere.length}`);
-        badgeGfx.fillStyle(0x0f172a, 0.9);
-        badgeGfx.fillRoundedRect(-24, -54, 48, 18, 4);
-        badgeGfx.lineStyle(1.5, 0xf59e0b, 0.85);
-        badgeGfx.strokeRoundedRect(-24, -54, 48, 18, 4);
+    // Badges / waiting count
+    if (isBeyondInfluence) {
+      countText.setColor('#94a3b8');
+      badgeGfx.fillStyle(0x1e293b, 0.85);
+      badgeGfx.lineStyle(1.5, 0x64748b, 0.7);
+
+      if (isCandidate) {
+        const remaining = loc.expiresAtTick !== undefined ? Math.max(0, loc.expiresAtTick - snapshot.tick) : null;
+        const timerStr = remaining !== null ? ` ⏳${remaining}t` : '';
+        countText.setText(`[OUT] $${loc.candidateCost || 1500}${timerStr}`);
+        badgeGfx.fillRoundedRect(-52, -54, 104, 18, 4);
+        badgeGfx.strokeRoundedRect(-52, -54, 104, 18, 4);
+      } else if (isUnstaffed) {
+        countText.setText('⚠️ UNSTAFFED');
+        badgeGfx.fillRoundedRect(-44, -54, 88, 18, 4);
+        badgeGfx.strokeRoundedRect(-44, -54, 88, 18, 4);
+      } else if (loc.kind === 'RECRUITER') {
+        const migrantsHere = Object.values(snapshot.migrants).filter(
+          (c) => c.originId === loc.id && (c.status === 'WAITING' || c.status === 'RECRUITED')
+        );
+        if (migrantsHere.length > 0) {
+          countText.setText(`👤 ${migrantsHere.length}`);
+          badgeGfx.fillRoundedRect(-24, -54, 48, 18, 4);
+          badgeGfx.strokeRoundedRect(-24, -54, 48, 18, 4);
+        } else {
+          countText.setText('');
+        }
+      } else if (loc.kind === 'DEPOT' || loc.kind === 'WORKSHOP') {
+        const migrantsHere = Object.values(snapshot.migrants).filter(
+          (c) => c.originId === loc.id && c.status === 'ARRIVED'
+        );
+        if (migrantsHere.length > 0) {
+          const icon = loc.kind === 'DEPOT' ? '📦' : '⚙️';
+          countText.setText(`${icon} ${migrantsHere.length}`);
+          badgeGfx.fillRoundedRect(-24, -54, 48, 18, 4);
+          badgeGfx.strokeRoundedRect(-24, -54, 48, 18, 4);
+        } else {
+          countText.setText('');
+        }
       } else {
         countText.setText('');
       }
     } else {
-      countText.setText('');
+      // Normal badge rendering in vibrant colors
+      if (isCandidate) {
+        const remaining = loc.expiresAtTick !== undefined ? Math.max(0, loc.expiresAtTick - snapshot.tick) : null;
+        const timerStr = remaining !== null ? ` ⏳${remaining}t` : '';
+        countText.setColor('#38bdf8');
+        countText.setText(`$${loc.candidateCost || 1500}${timerStr}`);
+        badgeGfx.fillStyle(0x0f172a, 0.92);
+        badgeGfx.fillRoundedRect(-44, -54, 88, 18, 4);
+        badgeGfx.lineStyle(1.5, 0x38bdf8, 0.9);
+        badgeGfx.strokeRoundedRect(-44, -54, 88, 18, 4);
+      } else if (isUnstaffed) {
+        countText.setColor('#f59e0b');
+        countText.setText('⚠️ UNSTAFFED');
+        badgeGfx.fillStyle(0x451a03, 0.9);
+        badgeGfx.fillRoundedRect(-44, -54, 88, 18, 4);
+        badgeGfx.lineStyle(1.5, 0xf59e0b, 0.9);
+        badgeGfx.strokeRoundedRect(-44, -54, 88, 18, 4);
+      } else if (loc.kind === 'HQ' && gang) {
+        badgeGfx.fillStyle(gang.colorNum, 1);
+        badgeGfx.fillCircle(28, -28, 12);
+        badgeGfx.lineStyle(1.5, 0xffffff, 0.9);
+        badgeGfx.strokeCircle(28, -28, 12);
+
+        countText.setColor(gang.color);
+        const hqLabel = loc.isMainHq ? '⭐ MAIN' : '⚡ HQ';
+        countText.setText(hqLabel);
+        badgeGfx.fillStyle(0x0f172a, 0.9);
+        badgeGfx.fillRoundedRect(-30, -54, 60, 18, 4);
+        badgeGfx.lineStyle(1.5, gang.colorNum, 0.9);
+        badgeGfx.strokeRoundedRect(-30, -54, 60, 18, 4);
+      } else if (loc.kind === 'RECRUITER') {
+        const migrantsHere = Object.values(snapshot.migrants).filter(
+          (c) => c.originId === loc.id && (c.status === 'WAITING' || c.status === 'RECRUITED')
+        );
+        if (migrantsHere.length > 0) {
+          countText.setColor('#38bdf8');
+          countText.setText(`👤 ${migrantsHere.length}`);
+          badgeGfx.fillStyle(0x0f172a, 0.9);
+          badgeGfx.fillRoundedRect(-24, -54, 48, 18, 4);
+          badgeGfx.lineStyle(1.5, gang ? gang.colorNum : 0x38bdf8, 0.85);
+          badgeGfx.strokeRoundedRect(-24, -54, 48, 18, 4);
+        } else {
+          countText.setText('');
+        }
+      } else if (loc.kind === 'DEPOT') {
+        const migrantsHere = Object.values(snapshot.migrants).filter(
+          (c) => c.originId === loc.id && c.status === 'ARRIVED'
+        );
+        if (migrantsHere.length > 0) {
+          countText.setColor('#10b981');
+          countText.setText(`📦 ${migrantsHere.length}`);
+          badgeGfx.fillStyle(0x0f172a, 0.9);
+          badgeGfx.fillRoundedRect(-24, -54, 48, 18, 4);
+          badgeGfx.lineStyle(1.5, 0x10b981, 0.85);
+          badgeGfx.strokeRoundedRect(-24, -54, 48, 18, 4);
+        } else {
+          countText.setText('');
+        }
+      } else if (loc.kind === 'WORKSHOP') {
+        const migrantsHere = Object.values(snapshot.migrants).filter(
+          (c) => c.originId === loc.id && c.status === 'ARRIVED'
+        );
+        if (migrantsHere.length > 0) {
+          countText.setColor('#f59e0b');
+          countText.setText(`⚙️ ${migrantsHere.length}`);
+          badgeGfx.fillStyle(0x0f172a, 0.9);
+          badgeGfx.fillRoundedRect(-24, -54, 48, 18, 4);
+          badgeGfx.lineStyle(1.5, 0xf59e0b, 0.85);
+          badgeGfx.strokeRoundedRect(-24, -54, 48, 18, 4);
+        } else {
+          countText.setText('');
+        }
+      } else {
+        countText.setText('');
+      }
     }
   }
 
@@ -1372,9 +1875,213 @@ export class BrokeScene extends Phaser.Scene {
    * 1 route max between nodes.
    * Only rendered when owning gang is selected.
    */
+  /**
+   * Route Services:
+   * In GEO View: bundled into a single Trunk Line between HQs.
+   * In REGION View: detailed individual routes between Recruiters and Depots.
+   */
   private renderParallelRoutes(snapshot: WorldSnapshot) {
+    if (this.viewMode === 'GEO') {
+      this.renderTrunkCorridors(snapshot);
+    } else {
+      this.renderRegionRoutes(snapshot);
+    }
+  }
+
+  private renderTrunkCorridors(snapshot: WorldSnapshot) {
     const gfx = this.routesGfx;
     gfx.clear();
+    this.corridorLineCoords.clear();
+
+    // Clean region route hit zones
+    for (const zone of this.routeHitZones.values()) {
+      zone.destroy();
+    }
+    this.routeHitZones.clear();
+
+    if (this.selectedGangIds.size === 0) {
+      this.cleanupTrunkHitZones();
+      return;
+    }
+
+    // Group active routes into corridor bundles between distinct HQs
+    const activeRoutes = Object.values(snapshot.routes).filter(
+      (r) => this.selectedGangIds.has(r.gangId) && (r.status === 'ACTIVE' || r.activeVoyageCount > 0)
+    );
+
+    const bundlesMap = new Map<string, CorridorBundle>();
+    for (const route of activeRoutes) {
+      const srcLoc = snapshot.locations[route.sourceId];
+      const tgtLoc = snapshot.locations[route.targetId];
+      if (!srcLoc || !tgtLoc) continue;
+
+      const srcHq = getClosestHqForNode(srcLoc, snapshot);
+      const tgtHq = getClosestHqForNode(tgtLoc, snapshot);
+      if (!srcHq || !tgtHq || srcHq.id === tgtHq.id) continue;
+
+      const bundleId = `CORRIDOR_${route.gangId}_${srcHq.id}_${tgtHq.id}`;
+      let bundle = bundlesMap.get(bundleId);
+      if (!bundle) {
+        bundle = {
+          id: bundleId,
+          gangId: route.gangId,
+          sourceHqId: srcHq.id,
+          targetHqId: tgtHq.id,
+          routes: [],
+          totalActiveVoyages: 0,
+          totalDelivered: 0,
+          totalRevenue: 0,
+          modes: [],
+        };
+        bundlesMap.set(bundleId, bundle);
+      }
+      bundle.routes.push(route);
+      bundle.totalActiveVoyages += route.activeVoyageCount;
+      bundle.totalDelivered += route.totalPassengers;
+      bundle.totalRevenue += route.revenue;
+      if (!bundle.modes.includes(route.mode)) {
+        bundle.modes.push(route.mode);
+      }
+    }
+
+    this.corridorBundles = bundlesMap;
+
+    // Clean obsolete trunk hit zones and badges
+    const activeBundleIds = new Set(bundlesMap.keys());
+    for (const [id, zone] of this.trunkRouteHitZones.entries()) {
+      if (!activeBundleIds.has(id)) {
+        zone.destroy();
+        this.trunkRouteHitZones.delete(id);
+      }
+    }
+    for (const [id, badge] of this.trunkRouteBadges.entries()) {
+      if (!activeBundleIds.has(id)) {
+        badge.destroy();
+        this.trunkRouteBadges.delete(id);
+      }
+    }
+
+    // Group parallel bundles between the same pair of HQs to calculate parallel offsets
+    const pairCount: Record<string, number> = {};
+    const pairIndex: Record<string, number> = {};
+    for (const bundle of bundlesMap.values()) {
+      const pairKey = [bundle.sourceHqId, bundle.targetHqId].sort().join('<->');
+      pairCount[pairKey] = (pairCount[pairKey] || 0) + 1;
+    }
+
+    for (const bundle of bundlesMap.values()) {
+      const srcHq = snapshot.locations[bundle.sourceHqId];
+      const tgtHq = snapshot.locations[bundle.targetHqId];
+      if (!srcHq || !tgtHq) continue;
+
+      const pairKey = [bundle.sourceHqId, bundle.targetHqId].sort().join('<->');
+      const totalPairs = pairCount[pairKey] || 1;
+      const idx = pairIndex[pairKey] || 0;
+      pairIndex[pairKey] = idx + 1;
+
+      const dx = tgtHq.x - srcHq.x;
+      const dy = tgtHq.y - srcHq.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist === 0) continue;
+
+      const nx = -dy / dist;
+      const ny = dx / dist;
+      const offsetMag = (idx - (totalPairs - 1) / 2) * 22;
+
+      const x1 = srcHq.x + nx * offsetMag;
+      const y1 = srcHq.y + ny * offsetMag;
+      const x2 = tgtHq.x + nx * offsetMag;
+      const y2 = tgtHq.y + ny * offsetMag;
+
+      this.corridorLineCoords.set(bundle.id, { x1, y1, x2, y2 });
+
+      const gang = snapshot.gangs[bundle.gangId];
+      const isSelected = this.selectedCorridorBundleId === bundle.id;
+      const color = gang ? gang.colorNum : 0x38bdf8;
+      const thickness = Math.min(8, 4 + bundle.routes.length * 1.5);
+
+      if (isSelected) {
+        // High-contrast gold halo
+        gfx.lineStyle(thickness + 6, 0xfacc15, 0.9);
+        gfx.lineBetween(x1, y1, x2, y2);
+        gfx.lineStyle(thickness, 0xffffff, 1.0);
+        gfx.lineBetween(x1, y1, x2, y2);
+      } else {
+        gfx.lineStyle(thickness + 2, 0x080c14, 0.7);
+        gfx.lineBetween(x1, y1, x2, y2);
+        gfx.lineStyle(thickness, color, 0.95);
+        gfx.lineBetween(x1, y1, x2, y2);
+      }
+
+      // Direction chevrons along trunk line
+      const angle = Math.atan2(dy, dx);
+      const arrowLen = 10;
+      gfx.lineStyle(2.5, isSelected ? 0xffffff : color, 1.0);
+      for (const frac of [0.35, 0.65]) {
+        const cx = x1 + dx * frac;
+        const cy = y1 + dy * frac;
+        gfx.beginPath();
+        gfx.moveTo(cx, cy);
+        gfx.lineTo(cx - arrowLen * Math.cos(angle - Math.PI / 5), cy - arrowLen * Math.sin(angle - Math.PI / 5));
+        gfx.moveTo(cx, cy);
+        gfx.lineTo(cx - arrowLen * Math.cos(angle + Math.PI / 5), cy - arrowLen * Math.sin(angle + Math.PI / 5));
+        gfx.strokePath();
+      }
+
+      // Midpoint badge
+      const midX = (x1 + x2) / 2;
+      const midY = (y1 + y2) / 2;
+
+      let badge = this.trunkRouteBadges.get(bundle.id);
+      if (!badge) {
+        badge = this.createTrunkBadge();
+        this.trunkRouteBadges.set(bundle.id, badge);
+        this.labelsContainer.add(badge);
+      }
+      badge.setPosition(midX, midY);
+      this.updateTrunkBadge(badge, bundle, isSelected, gang);
+
+      // Hit zone
+      const zoneW = Math.max(dist, 50);
+      const zoneH = 36;
+      let zone = this.trunkRouteHitZones.get(bundle.id);
+      if (!zone) {
+        zone = this.add.zone(midX, midY, zoneW, zoneH);
+        zone.setRotation(angle);
+        zone.setInteractive(
+          new Phaser.Geom.Rectangle(-zoneW / 2, -zoneH / 2, zoneW, zoneH),
+          Phaser.Geom.Rectangle.Contains
+        );
+        zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+          if (pointer.leftButtonDown()) {
+            this.justSelectedInteractiveObject = true;
+            this.selectedCorridorBundleId = bundle.id;
+            this.selectedRouteId = null;
+            this.selectedLocationId = null;
+            this.selectedVoyageId = null;
+            this.renderWorld(this.currentSnapshot);
+            if (this.eventsHandler.onSelectCorridorBundle) {
+              this.eventsHandler.onSelectCorridorBundle(bundle, this.currentSnapshot);
+            }
+          }
+        });
+        this.trunkRouteHitZones.set(bundle.id, zone);
+      } else {
+        zone.setPosition(midX, midY);
+        zone.setRotation(angle);
+        zone.setSize(zoneW, zoneH);
+        if (zone.input && zone.input.hitArea) {
+          (zone.input.hitArea as Phaser.Geom.Rectangle).setTo(-zoneW / 2, -zoneH / 2, zoneW, zoneH);
+        }
+      }
+    }
+  }
+
+  private renderRegionRoutes(snapshot: WorldSnapshot) {
+    const gfx = this.routesGfx;
+    gfx.clear();
+
+    this.cleanupTrunkHitZones();
 
     if (this.selectedGangIds.size === 0) {
       for (const zone of this.routeHitZones.values()) {
@@ -1384,12 +2091,37 @@ export class BrokeScene extends Phaser.Scene {
       return;
     }
 
-    // Only render routes owned by ANY selected gang!
-    const routesToRender = Object.values(snapshot.routes).filter(
-      (r) => this.selectedGangIds.has(r.gangId) && (r.status === 'ACTIVE' || r.activeVoyageCount > 0)
-    );
+    const activeHq = this.activeRegionHqId ? snapshot.locations[this.activeRegionHqId] : null;
+    const radius = activeHq ? (activeHq.influenceRadius || BASE_HQ_INFLUENCE_RADIUS) : 0;
+    const cropRadius = Math.round(radius * 1.45);
 
-    // Clean old hit zones
+    // Filter routes belonging to active HQ: either source or target belongs to this HQ
+    const routesToRender = Object.values(snapshot.routes).filter((r) => {
+      if (!this.selectedGangIds.has(r.gangId) || (r.status !== 'ACTIVE' && r.activeVoyageCount <= 0)) {
+        return false;
+      }
+      const src = snapshot.locations[r.sourceId];
+      const tgt = snapshot.locations[r.targetId];
+      if (!src || !tgt) return false;
+      if (!activeHq) return true;
+
+      // Crop out routes in other regions
+      if (src.region !== activeHq.region && tgt.region !== activeHq.region) {
+        return false;
+      }
+
+      // Crop out routes where both endpoints are beyond cropRadius
+      const srcDist = Math.hypot(src.x - activeHq.x, src.y - activeHq.y);
+      const tgtDist = Math.hypot(tgt.x - activeHq.x, tgt.y - activeHq.y);
+      if (srcDist > cropRadius && tgtDist > cropRadius) {
+        return false;
+      }
+
+      const srcHq = getClosestHqForNode(src, snapshot);
+      const tgtHq = getClosestHqForNode(tgt, snapshot);
+      return srcHq?.id === activeHq.id || tgtHq?.id === activeHq.id || srcDist <= cropRadius || tgtDist <= cropRadius;
+    });
+
     const activeRouteIds = new Set(routesToRender.map((r) => r.id));
     for (const [id, zone] of this.routeHitZones.entries()) {
       if (!activeRouteIds.has(id)) {
@@ -1408,28 +2140,35 @@ export class BrokeScene extends Phaser.Scene {
       const dist = Math.hypot(dx, dy);
       if (dist === 0) continue;
 
+      const srcDist = activeHq ? Math.hypot(src.x - activeHq.x, src.y - activeHq.y) : 0;
+      const tgtDist = activeHq ? Math.hypot(tgt.x - activeHq.x, tgt.y - activeHq.y) : 0;
+      const isPeriphery = activeHq && (srcDist > radius || tgtDist > radius);
+
       const gang = snapshot.gangs[route.gangId];
       const isSelected = this.selectedRouteId === route.id;
-      const color = gang ? gang.colorNum : 0x38bdf8;
+      const color = isPeriphery ? 0x64748b : (gang ? gang.colorNum : 0x38bdf8);
 
       if (isSelected) {
-        // High-contrast gold halo under selected route
         gfx.lineStyle(7, 0xfacc15, 0.85);
         gfx.lineBetween(src.x, src.y, tgt.x, tgt.y);
         gfx.lineStyle(3.5, 0xffffff, 1.0);
+        gfx.lineBetween(src.x, src.y, tgt.x, tgt.y);
+      } else if (isPeriphery) {
+        gfx.lineStyle(2.5, 0x64748b, 0.65);
         gfx.lineBetween(src.x, src.y, tgt.x, tgt.y);
       } else {
         gfx.lineStyle(3.0, color, 0.9);
         gfx.lineBetween(src.x, src.y, tgt.x, tgt.y);
       }
 
-      // Direction Arrow in middle
+      // Direction arrow
       const midX = (src.x + tgt.x) / 2;
       const midY = (src.y + tgt.y) / 2;
       const arrowAngle = Math.atan2(dy, dx);
       const arrowLen = 8;
+      const arrowColor = isSelected ? 0xffffff : (isPeriphery ? 0x94a3b8 : color);
 
-      gfx.lineStyle(2, isSelected ? 0xffffff : color, 1.0);
+      gfx.lineStyle(2, arrowColor, isPeriphery ? 0.7 : 1.0);
       gfx.beginPath();
       gfx.moveTo(midX, midY);
       gfx.lineTo(
@@ -1446,15 +2185,21 @@ export class BrokeScene extends Phaser.Scene {
       // Hit zone
       let zone = this.routeHitZones.get(route.id);
       if (!zone) {
-        zone = this.add.zone(midX, midY, Math.max(dist, 40), 24);
+        const zoneW = Math.max(dist, 40);
+        const zoneH = 26;
+        zone = this.add.zone(midX, midY, zoneW, zoneH);
         zone.setRotation(arrowAngle);
-        zone.setInteractive({ cursor: 'pointer' });
+        zone.setInteractive(
+          new Phaser.Geom.Rectangle(-zoneW / 2, -zoneH / 2, zoneW, zoneH),
+          Phaser.Geom.Rectangle.Contains
+        );
         zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
           if (pointer.leftButtonDown()) {
             this.justSelectedInteractiveObject = true;
             this.selectedRouteId = route.id;
             this.selectedLocationId = null;
             this.selectedVoyageId = null;
+            this.selectedCorridorBundleId = null;
             this.renderWorld(this.currentSnapshot);
             if (this.eventsHandler.onSelectRoute) {
               this.eventsHandler.onSelectRoute(route, this.currentSnapshot);
@@ -1463,20 +2208,113 @@ export class BrokeScene extends Phaser.Scene {
         });
         this.routeHitZones.set(route.id, zone);
       } else {
+        const zoneW = Math.max(dist, 40);
+        const zoneH = 26;
         zone.setPosition(midX, midY);
         zone.setRotation(arrowAngle);
-        zone.setSize(Math.max(dist, 40), 24);
+        zone.setSize(zoneW, zoneH);
         if (zone.input && zone.input.hitArea) {
-          (zone.input.hitArea as Phaser.Geom.Rectangle).setTo(0, 0, Math.max(dist, 40), 24);
+          (zone.input.hitArea as Phaser.Geom.Rectangle).setTo(-zoneW / 2, -zoneH / 2, zoneW, zoneH);
         }
       }
     }
   }
 
+  private cleanupTrunkHitZones() {
+    for (const zone of this.trunkRouteHitZones.values()) {
+      zone.destroy();
+    }
+    this.trunkRouteHitZones.clear();
+    for (const badge of this.trunkRouteBadges.values()) {
+      badge.destroy();
+    }
+    this.trunkRouteBadges.clear();
+  }
+
+  private createTrunkBadge(): Phaser.GameObjects.Container {
+    const container = this.add.container(0, 0);
+
+    const bgGfx = this.add.graphics();
+    bgGfx.setName('bgGfx');
+    container.add(bgGfx);
+
+    const text = this.add.text(0, 0, '', {
+      fontFamily: '"JetBrains Mono", Consolas, monospace',
+      fontSize: '11px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    });
+    text.setName('badgeText');
+    text.setOrigin(0.5, 0.5);
+    text.setResolution(2);
+    container.add(text);
+
+    const badgeHitZone = this.add.zone(0, 0, 80, 24);
+    badgeHitZone.setName('badgeHitZone');
+    badgeHitZone.setInteractive({ cursor: 'pointer' });
+    container.add(badgeHitZone);
+
+    return container;
+  }
+
+  private updateTrunkBadge(
+    container: Phaser.GameObjects.Container,
+    bundle: CorridorBundle,
+    isSelected: boolean,
+    gang?: GangState
+  ) {
+    const bgGfx = container.getByName('bgGfx') as Phaser.GameObjects.Graphics;
+    const text = container.getByName('badgeText') as Phaser.GameObjects.Text;
+    if (!bgGfx || !text) return;
+
+    bgGfx.clear();
+    const color = gang ? gang.colorNum : 0x38bdf8;
+    const isSea = bundle.modes.includes('BOAT');
+    const modeIcon = isSea ? '🚢' : '🚐';
+    const label = `${modeIcon} ${bundle.routes.length} ${bundle.routes.length === 1 ? 'Route' : 'Routes'} | ${bundle.totalActiveVoyages} Runs`;
+    text.setText(label);
+
+    const padX = 8;
+    const padY = 3;
+    const w = text.width + padX * 2;
+    const h = text.height + padY * 2;
+
+    bgGfx.fillStyle(0x0f172a, 0.92);
+    bgGfx.fillRoundedRect(-w / 2, -h / 2, w, h, 4);
+
+    if (isSelected) {
+      bgGfx.lineStyle(2, 0xfacc15, 1.0);
+      bgGfx.strokeRoundedRect(-w / 2, -h / 2, w, h, 4);
+    } else {
+      bgGfx.lineStyle(1.5, color, 0.85);
+      bgGfx.strokeRoundedRect(-w / 2, -h / 2, w, h, 4);
+    }
+
+    const badgeHitZone = container.getByName('badgeHitZone') as Phaser.GameObjects.Zone;
+    if (badgeHitZone) {
+      badgeHitZone.setSize(w, h);
+      badgeHitZone.setInteractive(new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h), Phaser.Geom.Rectangle.Contains);
+      badgeHitZone.removeAllListeners('pointerdown');
+      badgeHitZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        if (pointer.leftButtonDown()) {
+          this.justSelectedInteractiveObject = true;
+          this.selectedCorridorBundleId = bundle.id;
+          this.selectedRouteId = null;
+          this.selectedLocationId = null;
+          this.selectedVoyageId = null;
+          this.renderWorld(this.currentSnapshot);
+          if (this.eventsHandler.onSelectCorridorBundle) {
+            this.eventsHandler.onSelectCorridorBundle(bundle, this.currentSnapshot);
+          }
+        }
+      });
+    }
+  }
+
   /**
    * Voyage Vehicles:
-   * Recruiter -> Depot ONLY.
-   * Rendered when owning gang is selected.
+   * In GEO View: vehicles interpolate along trunk corridor lines between HQs.
+   * In REGION View: vehicles interpolate along individual routes between nodes.
    */
   private renderVoyageVehicles(snapshot: WorldSnapshot) {
     if (this.selectedGangIds.size === 0) {
@@ -1500,7 +2338,7 @@ export class BrokeScene extends Phaser.Scene {
       }
     }
 
-    // Update active vehicles along their route line
+    // Update active vehicles along their route/corridor line
     for (const voyage of activeVoyages) {
       const route = snapshot.routes[voyage.routeId];
       const gang = snapshot.gangs[voyage.gangId];
@@ -1508,10 +2346,71 @@ export class BrokeScene extends Phaser.Scene {
       const tgt = snapshot.locations[voyage.targetId];
       if (!route || !src || !tgt) continue;
 
-      const dx = tgt.x - src.x;
-      const dy = tgt.y - src.y;
-      const posX = src.x + dx * voyage.progress;
-      const posY = src.y + dy * voyage.progress;
+      let posX = 0;
+      let posY = 0;
+      let rotDx = 0;
+      let rotDy = 0;
+      let isVehiclePeriphery = false;
+
+      if (this.viewMode === 'GEO') {
+        const srcHq = getClosestHqForNode(src, snapshot);
+        const tgtHq = getClosestHqForNode(tgt, snapshot);
+        if (!srcHq || !tgtHq || srcHq.id === tgtHq.id) {
+          // Intra-cluster local voyage is abstracted in Geo View
+          const existing = this.vehicleSprites.get(voyage.id);
+          if (existing) {
+            existing.destroy();
+            this.vehicleSprites.delete(voyage.id);
+          }
+          continue;
+        }
+
+        const bundleId = `CORRIDOR_${voyage.gangId}_${srcHq.id}_${tgtHq.id}`;
+        const revBundleId = `CORRIDOR_${voyage.gangId}_${tgtHq.id}_${srcHq.id}`;
+        const line = this.corridorLineCoords.get(bundleId);
+        const revLine = !line ? this.corridorLineCoords.get(revBundleId) : null;
+
+        if (line) {
+          rotDx = line.x2 - line.x1;
+          rotDy = line.y2 - line.y1;
+          posX = line.x1 + rotDx * voyage.progress;
+          posY = line.y1 + rotDy * voyage.progress;
+        } else if (revLine) {
+          rotDx = revLine.x1 - revLine.x2;
+          rotDy = revLine.y1 - revLine.y2;
+          posX = revLine.x2 + rotDx * voyage.progress;
+          posY = revLine.y2 + rotDy * voyage.progress;
+        } else {
+          rotDx = tgtHq.x - srcHq.x;
+          rotDy = tgtHq.y - srcHq.y;
+          const dist = Math.hypot(rotDx, rotDy);
+          if (dist === 0) continue;
+          posX = srcHq.x + rotDx * voyage.progress;
+          posY = srcHq.y + rotDy * voyage.progress;
+        }
+      } else {
+        // REGION view: check if voyage belongs to active HQ operational theatre
+        const activeHq = this.activeRegionHqId ? snapshot.locations[this.activeRegionHqId] : null;
+        if (!activeHq || (src.region !== activeHq.region && tgt.region !== activeHq.region)) {
+          const existing = this.vehicleSprites.get(voyage.id);
+          if (existing) {
+            existing.destroy();
+            this.vehicleSprites.delete(voyage.id);
+          }
+          continue;
+        }
+
+        rotDx = tgt.x - src.x;
+        rotDy = tgt.y - src.y;
+        posX = src.x + rotDx * voyage.progress;
+        posY = src.y + rotDy * voyage.progress;
+
+        const radius = activeHq.influenceRadius || BASE_HQ_INFLUENCE_RADIUS;
+        const distFromHq = Math.hypot(posX - activeHq.x, posY - activeHq.y);
+
+        // Keep inter-region vessels visible in transit; tint as periphery if outside influence zone
+        isVehiclePeriphery = distFromHq > radius;
+      }
 
       let container = this.vehicleSprites.get(voyage.id);
       if (!container) {
@@ -1524,11 +2423,16 @@ export class BrokeScene extends Phaser.Scene {
 
       const sprite = container.getByName('vehicleSprite') as Phaser.GameObjects.Sprite | null;
       if (sprite) {
-        // Face forward along trajectory (default pixel art faces left; moving right (dx > 0) -> flipX = true)
-        sprite.setFlipX(dx > 0);
+        sprite.setFlipX(rotDx > 0);
+        if (isVehiclePeriphery) {
+          sprite.setTint(0x78716c);
+          sprite.setAlpha(0.65);
+        } else {
+          sprite.clearTint();
+          sprite.setAlpha(1.0);
+        }
 
         if (voyage.mode === 'BOAT') {
-          // Gentle sea swell / bobbing
           sprite.setY(Math.sin(voyage.progress * 35) * 2.5);
           sprite.setRotation(Math.sin(voyage.progress * 18) * 0.05);
         }
@@ -1536,19 +2440,17 @@ export class BrokeScene extends Phaser.Scene {
 
       const body = container.getByName('vehicleBody') as Phaser.GameObjects.Graphics | null;
       if (body) {
-        body.setRotation(Math.atan2(dy, dx));
+        body.setRotation(Math.atan2(rotDy, rotDx));
       }
 
       const wakeGfx = container.getByName('vehicleWake') as Phaser.GameObjects.Graphics | null;
       if (wakeGfx) {
         wakeGfx.clear();
         if (voyage.mode === 'BOAT') {
-          // Foam wake behind stern
-          wakeGfx.lineStyle(1.5, 0xbae6fd, 0.55);
-          wakeGfx.strokeEllipse(dx > 0 ? -18 : 18, 8, 22, 8);
+          wakeGfx.lineStyle(1.5, 0xbae6fd, isVehiclePeriphery ? 0.35 : 0.55);
+          wakeGfx.strokeEllipse(rotDx > 0 ? -18 : 18, 8, 22, 8);
         } else {
-          // Ground shadow underneath van
-          wakeGfx.fillStyle(0x000000, 0.35);
+          wakeGfx.fillStyle(0x000000, isVehiclePeriphery ? 0.2 : 0.35);
           wakeGfx.fillEllipse(0, 15, 42, 14);
         }
       }
@@ -1565,6 +2467,13 @@ export class BrokeScene extends Phaser.Scene {
       const badge = container.getByName('passengerBadge') as Phaser.GameObjects.Text;
       if (badge) {
         badge.setText(`×${voyage.passengerIds.length}`);
+        if (isVehiclePeriphery) {
+          badge.setColor('#94a3b8');
+          badge.setBackgroundColor('#1e293b');
+        } else {
+          badge.setColor('#ffffff');
+          badge.setBackgroundColor('#0f172a');
+        }
       }
     }
   }
@@ -1633,6 +2542,7 @@ export class BrokeScene extends Phaser.Scene {
         this.selectedVoyageId = voyage.id;
         this.selectedLocationId = null;
         this.selectedRouteId = null;
+        this.selectedCorridorBundleId = null;
         if (voyage.gangId) {
           this.selectedGangIds.add(voyage.gangId);
         }

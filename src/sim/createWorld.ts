@@ -8,6 +8,7 @@ import type {
 } from './types';
 import type { SeededPrng } from './rng';
 import { hireHood, resetHoodSeq } from './hoods';
+import { INITIAL_HQ_INFLUENCE_RADIUS } from './influence';
 
 export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
   resetHoodSeq(1);
@@ -27,14 +28,14 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       name: 'Neon Western HQ',
       region: 'EUROPE',
       x: 600,
-      y: 430,
+      y: 1000,
       tileFamily: 'logistics-hub',
       tileVariant: 'mk1',
       kind: 'HQ',
       gangId: 'GANG_NEON_GILL',
       isMainHq: true,
       operationalStatus: 'ACTIVE',
-      influenceRadius: 220,
+      influenceRadius: INITIAL_HQ_INFLUENCE_RADIUS,
     },
 
     // === GANG CRIMSON CLAW (Starts Central Europe with Main HQ) ===
@@ -43,14 +44,14 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       name: 'Crimson Central HQ',
       region: 'EUROPE',
       x: 2100,
-      y: 430,
+      y: 1000,
       tileFamily: 'logistics-hub',
       tileVariant: 'mk1',
       kind: 'HQ',
       gangId: 'GANG_CRIMSON_CLAW',
       isMainHq: true,
       operationalStatus: 'ACTIVE',
-      influenceRadius: 220,
+      influenceRadius: INITIAL_HQ_INFLUENCE_RADIUS,
     },
 
     // === GANG AMBER FIN (Starts Eastern Africa with Main HQ) ===
@@ -59,14 +60,14 @@ export function createInitialWorld(prng: SeededPrng): WorldSnapshot {
       name: 'Amber Alexandria Citadel HQ',
       region: 'AFRICA',
       x: 3600,
-      y: 1000,
+      y: 2350,
       tileFamily: 'logistics-hub',
       tileVariant: 'mk1',
       kind: 'HQ',
       gangId: 'GANG_AMBER_FIN',
       isMainHq: true,
       operationalStatus: 'ACTIVE',
-      influenceRadius: 220,
+      influenceRadius: INITIAL_HQ_INFLUENCE_RADIUS,
     },
   };
 

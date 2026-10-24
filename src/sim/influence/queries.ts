@@ -1,4 +1,4 @@
-import type { RegionId, WorldSnapshot } from '../types';
+import type { LocationDef, RegionId, WorldSnapshot } from '../types';
 import {
   BASE_HQ_INFLUENCE_RADIUS,
   INITIAL_HQ_INFLUENCE_RADIUS,
@@ -126,4 +126,59 @@ export function getEffectiveInfluenceHeat(
   // when rival dominates it pushes own presence down to 0.
   const effective = Math.max(0, rawOwn - RIVAL_RESTRICTION_FACTOR * maxRivalRaw);
   return Math.round(effective * 1000) / 1000;
+}
+
+/**
+ * Resolves the parent/closest HQ for a given location node.
+ * Used for Geo View abstraction (grouping nodes and routes by closest HQ within influence zone).
+ */
+export function getClosestHqForNode(
+  loc: LocationDef,
+  locations: Record<string, LocationDef> | WorldSnapshot
+): LocationDef | null {
+  if (loc.kind === 'HQ') return loc;
+
+  const locs = 'locations' in locations ? locations.locations : locations;
+  const allHqs = Object.values(locs).filter((l) => l.kind === 'HQ');
+  if (allHqs.length === 0) return null;
+
+  // 1. Prefer HQs of the same gang in the same region
+  if (loc.gangId && loc.gangId !== 'NEUTRAL') {
+    const sameGangSameRegion = allHqs.filter(
+      (h) => h.gangId === loc.gangId && h.region === loc.region
+    );
+    if (sameGangSameRegion.length > 0) {
+      return findClosestHq(loc, sameGangSameRegion);
+    }
+  }
+
+  // 2. Prefer any HQ in the same region (preserves geographic region abstraction in Geo View)
+  const sameRegion = allHqs.filter((h) => h.region === loc.region);
+  if (sameRegion.length > 0) {
+    return findClosestHq(loc, sameRegion);
+  }
+
+  // 3. Fallback: prefer HQs of the same gang in any region
+  if (loc.gangId && loc.gangId !== 'NEUTRAL') {
+    const sameGang = allHqs.filter((h) => h.gangId === loc.gangId);
+    if (sameGang.length > 0) {
+      return findClosestHq(loc, sameGang);
+    }
+  }
+
+  // 4. Fallback to closest overall HQ
+  return findClosestHq(loc, allHqs);
+}
+
+function findClosestHq(loc: LocationDef, hqs: LocationDef[]): LocationDef {
+  let closest = hqs[0];
+  let minDist = Math.hypot(closest.x - loc.x, closest.y - loc.y);
+  for (let i = 1; i < hqs.length; i++) {
+    const dist = Math.hypot(hqs[i].x - loc.x, hqs[i].y - loc.y);
+    if (dist < minDist) {
+      minDist = dist;
+      closest = hqs[i];
+    }
+  }
+  return closest;
 }

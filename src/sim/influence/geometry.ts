@@ -1,9 +1,9 @@
 import type { RegionId } from '../types';
 
 export const REGION_BOUNDS: Record<RegionId, { yMin: number; yMax: number }> = {
-  UK: { yMin: -150, yMax: 140 },
-  EUROPE: { yMin: 280, yMax: 660 },
-  AFRICA: { yMin: 860, yMax: 1180 },
+  UK: { yMin: -700, yMax: 200 },       // height: 900px (~3x original 290px)
+  EUROPE: { yMin: 400, yMax: 1600 },   // height: 1200px (~3x original 380px)
+  AFRICA: { yMin: 1850, yMax: 2850 },  // height: 1000px (~3x original 320px)
 };
 
 export interface BorderSideDef {
@@ -28,11 +28,11 @@ export const WATER_ZONES: WaterZoneDef[] = [
   {
     id: 'ENGLISH_CHANNEL',
     name: 'English Channel',
-    yMin: 140,
-    yMax: 280,
+    yMin: 200,
+    yMax: 400,
     northBorder: {
       name: 'UK Channel Perimeter',
-      y: 140,
+      y: 200,
       type: 'ENTRY',
       fromRegion: 'EUROPE',
       toRegion: 'UK',
@@ -40,7 +40,7 @@ export const WATER_ZONES: WaterZoneDef[] = [
     },
     southBorder: {
       name: 'Europe Channel Perimeter',
-      y: 280,
+      y: 400,
       type: 'EXIT',
       fromRegion: 'EUROPE',
       toRegion: 'UK',
@@ -50,11 +50,11 @@ export const WATER_ZONES: WaterZoneDef[] = [
   {
     id: 'MEDITERRANEAN_SEA',
     name: 'Mediterranean Sea',
-    yMin: 660,
-    yMax: 860,
+    yMin: 1600,
+    yMax: 1850,
     northBorder: {
       name: 'European Mediterranean Coast',
-      y: 660,
+      y: 1600,
       type: 'ENTRY',
       fromRegion: 'AFRICA',
       toRegion: 'EUROPE',
@@ -62,7 +62,7 @@ export const WATER_ZONES: WaterZoneDef[] = [
     },
     southBorder: {
       name: 'North Africa Maritime Coast',
-      y: 860,
+      y: 1850,
       type: 'EXIT',
       fromRegion: 'AFRICA',
       toRegion: 'EUROPE',
@@ -71,9 +71,9 @@ export const WATER_ZONES: WaterZoneDef[] = [
   },
 ];
 
-export const BASE_HQ_INFLUENCE_RADIUS = 260; // Base influence radius in px
-export const INITIAL_HQ_INFLUENCE_RADIUS = 220; // Starting influence radius for fresh HQs
-export const MAX_HQ_INFLUENCE_RADIUS = 350; // Maximum capped influence radius
+export const BASE_HQ_INFLUENCE_RADIUS = 800; // Base influence radius in px
+export const INITIAL_HQ_INFLUENCE_RADIUS = 700; // Starting influence radius for fresh HQs
+export const MAX_HQ_INFLUENCE_RADIUS = 1200; // Maximum capped influence radius
 export const RIVAL_RESTRICTION_FACTOR = 0.65; // Overlap damping: allows slight overlap buffer between rival HQs
 
 export function isPointInWater(y: number): boolean {

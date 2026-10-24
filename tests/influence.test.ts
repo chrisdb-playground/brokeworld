@@ -37,18 +37,17 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
     const prng = createPrng(1234);
     const state = createInitialWorld(prng);
 
-    const neonEuropeHq = state.locations['HQ_NEON']; // x: 140, y: 430 (Europe: 280 to 660)
+    const neonEuropeHq = state.locations['HQ_NEON']; // Europe: 400 to 1600
     expect(neonEuropeHq.region).toBe('EUROPE');
 
-    // Point in UK (y = 100):
-    // Distance to Europe HQ is 330px
-    // And since y = 100 is in UK, raw influence from Europe must be 0!
-    const rawInfluenceInUkFromEur = getRawGangInfluenceInRegion(state, 'GANG_NEON_GILL', 'UK', 140, 100);
+    // Point in UK (y = -100):
+    // And since y = -100 is in UK, raw influence from Europe must be 0!
+    const rawInfluenceInUkFromEur = getRawGangInfluenceInRegion(state, 'GANG_NEON_GILL', 'UK', 140, -100);
     expect(rawInfluenceInUkFromEur).toBe(0);
 
     // Heat across Channel border in UK from European operations is strictly 0
     // Gang Neon only has Europe HQ initially, so UK heat is 0
-    const heatAtUkBorder = getEffectiveInfluenceHeat(state, 'GANG_NEON_GILL', 140, 100);
+    const heatAtUkBorder = getEffectiveInfluenceHeat(state, 'GANG_NEON_GILL', 140, -100);
     expect(heatAtUkBorder).toBe(0);
 
     // Create an isolated test state with an HQ near the Europe border for a test gang:
@@ -60,7 +59,7 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
           name: 'Test HQ',
           region: 'EUROPE' as const,
           x: 400,
-          y: 320, // Near Europe north border at y=280
+          y: 450, // Near Europe north border at y=400
           tileFamily: 'logistics-hub',
           tileVariant: 'mk1',
           kind: 'HQ' as const,
@@ -78,16 +77,16 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
       },
     };
 
-    // Y = 200 is in English Channel water (120px away from TEST_HQ at y=320, well within 260px radius)
-    const heatInChannel = getEffectiveInfluenceHeat(testState, 'TEST_GANG', 400, 200);
+    // Y = 300 is in English Channel water (150px away from TEST_HQ at y=450, well within 260px radius)
+    const heatInChannel = getEffectiveInfluenceHeat(testState, 'TEST_GANG', 400, 300);
     expect(heatInChannel).toBe(0); // Heat map strictly stops at border!
 
-    // Y = 100 is in UK (220px away from TEST_HQ at y=320, within 260px radius)
+    // Y = 100 is in UK (350px away from TEST_HQ at y=450)
     const heatInUk = getEffectiveInfluenceHeat(testState, 'TEST_GANG', 400, 100);
     expect(heatInUk).toBe(0); // Heat map strictly stops at border!
 
-    // Y = 950 is in Africa
-    const heatInAfrica = getEffectiveInfluenceHeat(testState, 'TEST_GANG', 400, 950);
+    // Y = 2000 is in Africa
+    const heatInAfrica = getEffectiveInfluenceHeat(testState, 'TEST_GANG', 400, 2000);
     expect(heatInAfrica).toBe(0); // Heat map strictly stops at border!
   });
 
@@ -279,8 +278,8 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
           gangId: gang.id,
           kind: 'DEPOT',
           region: 'EUROPE',
-          x: 320,
-          y: 470, // 80px away from new HQ at (400, 470), well within heat map and clears all nodes
+          x: 100,
+          y: 470, // 300px away from new HQ at (400, 470), well within heat map (650px) and clears 250px clearance
           name: 'Crimson Mediterranean Depot',
         },
       },
@@ -368,7 +367,7 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
     const prng = createPrng(1234);
     const state = createInitialWorld(prng);
 
-    // Test gang with an HQ close to the Mediterranean border in Europe: (500, 630)
+    // Test gang with an HQ close to the Mediterranean border in Europe: (500, 1570)
     const borderTestState = {
       ...state,
       locations: {
@@ -377,7 +376,7 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
           name: 'Border HQ',
           region: 'EUROPE' as const,
           x: 500,
-          y: 630, // 30px away from Europe southern border at y=660
+          y: 1570, // 30px away from Europe southern border at y=1600
           tileFamily: 'logistics-hub',
           tileVariant: 'mk1',
           kind: 'HQ' as const,
@@ -394,23 +393,23 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
       },
     };
 
-    // 1. Inside Europe near the border (y=645): heat is strong
-    const heatInsideEurope = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 645);
+    // 1. Inside Europe near the border (y=1585): heat is strong
+    const heatInsideEurope = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 1585);
     expect(heatInsideEurope).toBeGreaterThan(0.85);
 
-    // 2. In the Mediterranean Sea water (between y=660 and y=860, e.g. y=750):
+    // 2. In the Mediterranean Sea water (between y=1600 and y=1850, e.g. y=1720):
     // Strictly 0 because HQ influence stops at border!
-    const heatInMedWater = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 750);
+    const heatInMedWater = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 1720);
     expect(heatInMedWater).toBe(0);
 
-    // 3. Across the water in Africa (e.g. y=950):
-    // Even though Euclidean distance is 320px,
+    // 3. Across the water in Africa (e.g. y=2100):
+    // Even though Euclidean distance is 530px,
     // because it's past the border, influence is strictly 0!
-    const heatInAfrica = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 950);
+    const heatInAfrica = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 2100);
     expect(heatInAfrica).toBe(0);
 
-    // 4. In the English Channel water (between y=140 and y=280, e.g. y=210):
-    const heatInChannelWater = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 210);
+    // 4. In the English Channel water (between y=200 and y=400, e.g. y=300):
+    const heatInChannelWater = getEffectiveInfluenceHeat(borderTestState, 'BORDER_GANG', 500, 300);
     expect(heatInChannelWater).toBe(0);
   });
 
@@ -418,7 +417,7 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
     const prng = createPrng(9876);
     const state = createInitialWorld(prng);
 
-    // Neon Gill only has a Main HQ in Europe (x: 600, y: 430, radius: 220)
+    // Neon Gill only has a Main HQ in Europe (x: 600, y: 1000)
     const neonGang = state.gangs['GANG_NEON_GILL'];
     neonGang.cash = 25000;
 
@@ -428,22 +427,26 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
       name: 'Tripoli Coastal HQ Site',
       region: 'AFRICA',
       x: 600,
-      y: 950,
+      y: 2200,
       kind: 'HQ',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
       candidateCost: 2200,
+      tileFamily: 'hub',
+      tileVariant: '0',
     };
     state.locations['CAND_AFR_REC'] = {
       id: 'CAND_AFR_REC',
       name: 'Tripoli Outpost Recruiter',
       region: 'AFRICA',
       x: 650,
-      y: 960, // 51px away from Tripoli HQ
+      y: 2220, // 53px away from Tripoli HQ
       kind: 'RECRUITER',
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
       candidateCost: 1500,
+      tileFamily: 'crusher',
+      tileVariant: '0',
     };
 
     // A. Recruiter in Africa CANNOT be bought before an HQ is established in Africa!
@@ -484,6 +487,8 @@ describe('HQ Influence Zones and Infrastructure Acquisition', () => {
       gangId: 'NEUTRAL',
       operationalStatus: 'DISCOVERED_CANDIDATE',
       candidateCost: 1200,
+      tileFamily: 'pressure-tank',
+      tileVariant: '0',
     };
 
     const distantCheck = canClaimCandidateNode(state, neonGang.id, 'CAND_EUR_DISTANT_DEPOT');

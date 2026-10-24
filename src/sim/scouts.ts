@@ -7,7 +7,7 @@ import type {
   WorldSnapshot,
 } from './types';
 import type { SeededPrng } from './rng';
-import { isPointInWater } from './influence/geometry';
+import { isPointInRegion, isPointInWater } from './influence/geometry';
 
 let candidateNodeSeq = 1;
 let candidateRouteSeq = 1;
@@ -15,6 +15,10 @@ let candidateRouteSeq = 1;
 export function resetScoutSeq(val = 1): void {
   candidateNodeSeq = val;
   candidateRouteSeq = val;
+}
+
+function clamp(val: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, val));
 }
 
 const REGION_NODE_NAMES: Record<RegionId, Record<LocationKind, string[]>> = {
@@ -130,20 +134,27 @@ export function scoutAreaForNodes(
     }
   }
 
-  // 2. Determine base center X from gang's sector or centerPos
+  // 2. Determine base center coordinates from centerPos or gang's assets in this region
   let baseX = centerPos?.x;
   if (baseX === undefined) {
-    const mainHq = gang.mainHqLocationId ? state.locations[gang.mainHqLocationId] : null;
-    if (mainHq) {
-      baseX = mainHq.x;
-    } else if (gangId === 'GANG_NEON_GILL') {
-      baseX = 600;
-    } else if (gangId === 'GANG_CRIMSON_CLAW') {
-      baseX = 2100;
-    } else if (gangId === 'GANG_AMBER_FIN') {
-      baseX = 3600;
+    const regionalHq = (gang.hqLocationIds || [])
+      .map((id) => state.locations[id])
+      .find((l) => l && l.region === region && l.kind === 'HQ');
+    if (regionalHq) {
+      baseX = regionalHq.x;
     } else {
-      baseX = 1200;
+      const mainHq = gang.mainHqLocationId ? state.locations[gang.mainHqLocationId] : null;
+      if (mainHq) {
+        baseX = mainHq.x;
+      } else if (gangId === 'GANG_NEON_GILL') {
+        baseX = 600;
+      } else if (gangId === 'GANG_CRIMSON_CLAW') {
+        baseX = 2100;
+      } else if (gangId === 'GANG_AMBER_FIN') {
+        baseX = 3600;
+      } else {
+        baseX = 1200;
+      }
     }
   }
 
@@ -151,22 +162,46 @@ export function scoutAreaForNodes(
   const bunchSize = prng.nextInt(2, 4);
   const createdNodes: LocationDef[] = [];
 
-  // Available kinds for this region
-  const allowedKinds: LocationKind[] =
-    region === 'AFRICA'
-      ? ['RECRUITER', 'HQ']
-      : region === 'UK'
-      ? ['DEPOT', 'HQ']
-      : ['DEPOT', 'RECRUITER', 'WORKSHOP', 'HQ'];
+  const regionalHq = (gang.hqLocationIds || [])
+    .map((id) => state.locations[id])
+    .find((l) => l && l.region === region && l.kind === 'HQ');
+  const hasHqInRegion = !!regionalHq;
 
-  const hasHqInRegion = (gang.hqLocationIds || []).some(
-    (id) => state.locations[id]?.region === region
-  );
+  // Track anchor HQ coordinates to cluster non-HQ candidates inside its influence zone
+  let anchorHqX = regionalHq ? regionalHq.x : baseX;
+  let anchorHqY = regionalHq
+    ? regionalHq.y
+    : region === 'AFRICA'
+    ? 2350
+    : region === 'UK'
+    ? -250
+    : 1000;
 
   for (let i = 0; i < bunchSize; i++) {
-    // If the gang has no HQ in this region, guarantee that the first node is an HQ candidate site
-    // so the gang can establish a new Regional HQ and build out a new influence zone!
-    const kind = (!hasHqInRegion && i === 0) ? 'HQ' : prng.pick(allowedKinds);
+    // Determine node kind:
+    // If the gang has no HQ in this region, Candidate 0 MUST be an HQ site
+    // so the gang can establish a new Forward HQ in this region!
+    let kind: LocationKind;
+    if (!hasHqInRegion && i === 0) {
+      kind = 'HQ';
+    } else if (region === 'AFRICA') {
+      kind = 'RECRUITER';
+    } else if (region === 'UK') {
+      kind = 'DEPOT';
+    } else {
+      // Europe
+      const hasAfrRec = (gang.recruiterLocationIds || []).some(
+        (id) => state.locations[id]?.region === 'AFRICA'
+      );
+      if (hasAfrRec && (gang.depotLocationIds || []).length === 0) {
+        kind = 'DEPOT';
+      } else if ((gang.recruiterLocationIds || []).length === 0) {
+        kind = 'RECRUITER';
+      } else {
+        kind = prng.pick(['DEPOT', 'RECRUITER', 'WORKSHOP']);
+      }
+    }
+
     const namePool = REGION_NODE_NAMES[region][kind] || [`${gang.name} ${region} ${kind}`];
     const baseName = prng.pick(namePool);
     const nodeName = `${baseName} #${candidateNodeSeq}`;
@@ -189,44 +224,73 @@ export function scoutAreaForNodes(
       cost = 2200;
     }
 
-    // Determine Y coordinate in valid region band
-    let y = 450;
-    if (region === 'AFRICA') {
-      y = prng.nextInt(920, 1080);
-    } else if (region === 'EUROPE') {
-      if (kind === 'RECRUITER') {
-        y = prng.nextInt(320, 390); // North European coast for Channel crossing
-      } else {
-        y = prng.nextInt(470, 610); // Central / South Europe
-      }
-    } else if (region === 'UK') {
-      y = prng.nextInt(30, 110);
-    }
-
-    // Avoid water
-    if (isPointInWater(y)) {
-      y = region === 'AFRICA' ? 950 : region === 'UK' ? 70 : 430;
-    }
-
-    // Determine X with spread and clearance check
-    let x = baseX + prng.nextInt(-220, 220);
-
-    // Clearance check (minimum 80px from any existing location)
+    let x = anchorHqX;
+    let y = anchorHqY;
     let safe = false;
-    for (let attempt = 0; attempt < 12; attempt++) {
-      const tooClose = Object.values(state.locations).some(
-        (loc) => Math.hypot(loc.x - x, loc.y - y) < 80
-      );
-      if (!tooClose) {
-        safe = true;
-        break;
-      }
-      x = baseX + prng.nextInt(-320, 320);
-      y += prng.nextInt(-25, 25);
-    }
 
-    if (!safe) {
-      x += (i + 1) * 95;
+    if (!hasHqInRegion && i === 0) {
+      // Placing candidate HQ in this new region
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const testX = clamp(baseX + prng.nextInt(-350, 350), 300, 3900);
+        let testY = 1000;
+        if (region === 'AFRICA') {
+          testY = prng.nextInt(2100, 2600);
+        } else if (region === 'EUROPE') {
+          testY = prng.nextInt(650, 1350);
+        } else if (region === 'UK') {
+          testY = prng.nextInt(-500, 50);
+        }
+
+        if (isPointInWater(testY)) continue;
+        if (!isPointInRegion(testX, testY, region)) continue;
+
+        const tooClose = Object.values(state.locations).some(
+          (loc) => Math.hypot(loc.x - testX, loc.y - testY) < 340
+        );
+        if (!tooClose) {
+          x = testX;
+          y = testY;
+          safe = true;
+          break;
+        }
+      }
+      if (!safe) {
+        x = baseX;
+        y = region === 'AFRICA' ? 2350 : region === 'UK' ? -250 : 1000;
+      }
+      // Update anchor so candidates 1..n cluster around this Candidate HQ!
+      anchorHqX = x;
+      anchorHqY = y;
+    } else {
+      // Placing non-HQ node clustered around anchor HQ (distance 345..490px)
+      // This ensures that when the gang leases the HQ, all accompanying candidates
+      // strictly lie inside its 700px influence zone (heat >= 0.30) and can be claimed immediately!
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const angle = prng.next() * Math.PI * 2;
+        const dist = prng.nextInt(345, 490);
+        const testX = Math.round(anchorHqX + Math.cos(angle) * dist);
+        const testY = Math.round(anchorHqY + Math.sin(angle) * dist);
+
+        if (isPointInWater(testY)) continue;
+        if (!isPointInRegion(testX, testY, region)) continue;
+
+        const tooClose = Object.values(state.locations).some(
+          (loc) => Math.hypot(loc.x - testX, loc.y - testY) < 335
+        );
+        if (!tooClose) {
+          x = testX;
+          y = testY;
+          safe = true;
+          break;
+        }
+      }
+
+      if (!safe) {
+        const fallbackAngle = (i * Math.PI) / 2;
+        x = Math.round(anchorHqX + Math.cos(fallbackAngle) * 360);
+        y = Math.round(anchorHqY + Math.sin(fallbackAngle) * 360);
+        if (isPointInWater(y)) y = anchorHqY;
+      }
     }
 
     const nodeId = `CAND_NODE_${gangId}_${candidateNodeSeq++}`;
@@ -244,7 +308,7 @@ export function scoutAreaForNodes(
       operationalStatus: 'DISCOVERED_CANDIDATE',
       candidateCost: cost,
       createdAtTick: state.tick,
-      expiresAtTick: state.tick + 180, // Dynamic node removed if not purchased within 180 ticks
+      expiresAtTick: state.tick + 240, // Dynamic node available for 240 ticks
     };
 
     state.locations[nodeId] = candidateNode;
@@ -256,7 +320,7 @@ export function scoutAreaForNodes(
         id: `EVT_DISC_${nodeId}_${state.tick}`,
         tick: state.tick,
         type: 'NODE_DISCOVERED',
-        description: `Scout chartered candidate site: ${candidateNode.name} (${region}, $${cost}). Available for 180 ticks.`,
+        description: `Scout chartered candidate site: ${candidateNode.name} (${region}, $${cost}). Available for 240 ticks.`,
         importance: 'MEDIUM',
         gangId,
         locationId: nodeId,
@@ -338,7 +402,7 @@ export function scoutSearchForRoutes(
           mode: 'BOAT',
           isCrossBorder: true,
           createdAtTick: state.tick,
-          expiresAtTick: state.tick + 180,
+          expiresAtTick: state.tick + 240,
         };
 
         gang.discoveredCandidateRoutes.push(candRoute);
@@ -352,7 +416,7 @@ export function scoutSearchForRoutes(
             id: `EVT_DISC_ROUTE_${candRoute.id}_${state.tick}`,
             tick: state.tick,
             type: 'ROUTE_DISCOVERED',
-            description: `Scout charted candidate sea route: ${rec.name} ➔ ${depot.name} ($1,000). Available for 180 ticks.`,
+            description: `Scout charted candidate sea route: ${rec.name} ➔ ${depot.name} ($1,000). Available for 240 ticks.`,
             importance: 'MEDIUM',
             gangId: gang.id,
           });
@@ -486,23 +550,76 @@ export function processScouts(
       (r) => r.gangId === gang.id && r.status === 'ACTIVE'
     );
 
-    // Scout logic:
-    // 1. If gang has 0 recruiters or 0 depots, scout an area to generate nodes!
-    if (aliveCandidateNodes.length < 3 || recCount === 0 || depCount === 0) {
-      let targetRegion: RegionId = 'EUROPE';
-      if (recCount === 0) {
-        // Look for recruiters: home region or Africa
-        targetRegion = prng.chance(0.5) ? 'AFRICA' : 'EUROPE';
-      } else if (depCount === 0) {
-        // Look for depots: Europe or UK
-        const rec = state.locations[gang.recruiterLocationIds![0]];
-        targetRegion = rec?.region === 'AFRICA' ? 'EUROPE' : 'UK';
-      } else {
-        // Expand
-        targetRegion = prng.pick(['AFRICA', 'EUROPE', 'UK'] as RegionId[]);
+    const ownHqs = (gang.hqLocationIds || []).map((id) => state.locations[id]).filter(Boolean);
+    const ownRegions = new Set(ownHqs.map((h) => h.region));
+    const allRegions: RegionId[] = ['AFRICA', 'EUROPE', 'UK'];
+    const missingRegions = allRegions.filter((r) => !ownRegions.has(r));
+
+    const aliveByRegion: Record<RegionId, LocationDef[]> = {
+      AFRICA: aliveCandidateNodes.filter((l) => l.region === 'AFRICA'),
+      EUROPE: aliveCandidateNodes.filter((l) => l.region === 'EUROPE'),
+      UK: aliveCandidateNodes.filter((l) => l.region === 'UK'),
+    };
+
+    const homeRegion = (gang.mainHqLocationId && state.locations[gang.mainHqLocationId]?.region) || 'EUROPE';
+
+    let targetRegion: RegionId = homeRegion;
+    let shouldScout = false;
+
+    // Strategic scout target selection:
+    // 1. Initial kickoff: If gang has 0 recruiters in home region, scout home region first
+    if (recCount === 0 && aliveByRegion[homeRegion].length === 0) {
+      targetRegion = homeRegion;
+      shouldScout = true;
+    }
+    // 2. Cross-border targets:
+    // Amber Fin (has Africa recruiter): needs Europe Depot -> actively scout EUROPE!
+    else if (
+      gang.recruiterLocationIds?.some((id) => state.locations[id]?.region === 'AFRICA') &&
+      !gang.depotLocationIds?.some((id) => state.locations[id]?.region === 'EUROPE') &&
+      aliveByRegion.EUROPE.length === 0
+    ) {
+      targetRegion = 'EUROPE';
+      shouldScout = true;
+    }
+    // Neon/Crimson (has Europe recruiter): needs UK Depot -> actively scout UK!
+    else if (
+      gang.recruiterLocationIds?.some((id) => state.locations[id]?.region === 'EUROPE') &&
+      !gang.depotLocationIds?.some((id) => state.locations[id]?.region === 'UK') &&
+      aliveByRegion.UK.length === 0
+    ) {
+      targetRegion = 'UK';
+      shouldScout = true;
+    }
+    // 3. Forward expansion: If gang lacks presence in any region, scout missing regions to discover Forward HQs!
+    else if (missingRegions.length > 0) {
+      const unrepresented = missingRegions.find((r) => aliveByRegion[r].length === 0);
+      if (unrepresented) {
+        targetRegion = unrepresented;
+        shouldScout = true;
+      } else if (aliveCandidateNodes.length < 5 && prng.chance(0.6)) {
+        targetRegion = prng.pick(missingRegions);
+        shouldScout = true;
+      }
+    }
+
+    // 4. General replenishment if total candidates is low (< 4)
+    if (!shouldScout && aliveCandidateNodes.length < 4) {
+      const sorted = (['AFRICA', 'EUROPE', 'UK'] as RegionId[]).sort(
+        (a, b) => aliveByRegion[a].length - aliveByRegion[b].length
+      );
+      targetRegion = sorted[0];
+      shouldScout = true;
+    }
+
+    if (shouldScout) {
+      let centerPos: { x: number; y: number } | undefined = undefined;
+      const assignedLoc = scout.assignment?.targetId ? state.locations[scout.assignment.targetId] : null;
+      if (assignedLoc && assignedLoc.region === targetRegion) {
+        centerPos = { x: assignedLoc.x, y: assignedLoc.y };
       }
 
-      scoutAreaForNodes(state, gang.id, prng, targetRegion, undefined, events);
+      scoutAreaForNodes(state, gang.id, prng, targetRegion, centerPos, events);
     }
 
     // 2. If gang has owned recruiters and depots, search for routes!
