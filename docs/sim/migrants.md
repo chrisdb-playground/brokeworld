@@ -21,8 +21,17 @@ export interface MigrantState {
   originName: string;              // e.g. "Tripoli", "Calais"
   originRegion: RegionId;          // 'AFRICA' | 'EUROPE'
   desiredRegion: 'EUROPE' | 'UK';  // Target region
-  originId: string;                // Current location ID (Recruiter or Depot)
-  cash: number;                    // Personal funds ($250 – $750)
+  originId: string;                // Current location ID (Recruiter, Depot, Workshop)
+  destinationId?: string;          // Persistent final destination node
+  destinationRegion?: RegionId;    // Region of final destination
+  goal?: MigrantGoal;              // 'LEAVE' | 'WORK' | 'CRIME' | 'MARRY'
+  happiness?: number;              // 0–100 happiness index
+  offer?: number;                  // Upfront monetary offer for entire journey
+  originRecruiterId?: string;      // Recruiter node where migrant first appeared
+  destinationReached?: boolean;    // Whether final destination node was physically reached
+  goalFulfilled?: boolean;         // Whether life goal was fulfilled at final destination
+  prospectExpiresTick?: number;    // Expiration tick for unaccepted prospects
+  cash: number;                    // Personal funds
   patienceRemainingTicks: number;  // Ticks remaining before giving up
   status: MigrantStatus;           // Current lifecycle phase
   recruitedByGangId?: string;      // Contracted gang
@@ -37,17 +46,20 @@ export interface MigrantState {
 
 ## 🔄 Migrant Lifecycle & State Machine
 
-Migrants transition through six discrete states across their lifecycle:
+Migrants transition through discrete states across their lifecycle:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> WAITING: Spawn at Recruiter
-    WAITING --> RECRUITED: Sign contract with Gang
-    WAITING --> DEPARTED: Patience reaches 0 (Leaves world)
+    [*] --> PROSPECT: Spawn at Recruiter
+    PROSPECT --> RECRUITED: Accepted by gang (Full upfront payment)
+    PROSPECT --> DEPARTED: Prospect expires / patience reaches 0
     RECRUITED --> IN_TRANSIT: Boarded onto Voyage vehicle
-    IN_TRANSIT --> ARRIVED: Voyage arrives safely at Depot
-    IN_TRANSIT --> WAITING: Voyage Disrupted (Returned to Recruiter)
-    ARRIVED --> [*]: Settled permanently in Depot
+    IN_TRANSIT --> ARRIVED: Voyage arrives at Depot
+    IN_TRANSIT --> PROSPECT: Voyage Disrupted (Returned to Recruiter)
+    ARRIVED --> RECRUITED: Forwarded to Recruiter (Next hop, no extra fee)
+    ARRIVED --> ASSIGNED: Assigned to Workshop or Criminal Enterprise
+    ARRIVED --> DEPARTED: Booted from Depot (Completes LEAVE if at destination)
+    ASSIGNED --> [*]: Active workforce
     DEPARTED --> [*]: Exited market
 ```
 
@@ -55,12 +67,12 @@ stateDiagram-v2
 
 | Status | Meaning | Location (`originId`) | Active In Transit Market? |
 | :--- | :--- | :--- | :---: |
-| **`WAITING`** | Waiting at a Recruiter node, evaluating available gang routes. Patience decays each tick. | `RECRUITER` node ID | ✅ Yes |
-| **`RECRUITED`** | Has purchased a ticket and contracted with the node's owner gang. Waiting for voyage dispatch. | `RECRUITER` node ID | ✅ Yes |
-| **`IN_TRANSIT`** | En route across a cross-border physical connection aboard a vehicle. | Source `RECRUITER` node ID | ✅ Yes |
-| **`ARRIVED`** | Successfully completed voyage. **Safely housed inside target Depot**. | Target `DEPOT` node ID | ❌ No (Settled) |
-| **`DEPARTED`** | Ran out of patience before finding passage; left the active migration pool. | Last known `RECRUITER` | ❌ No (Archived) |
-| **`FAILED`** | Legacy terminal state for aborted migrations. | Last known node | ❌ No (Archived) |
+| **`PROSPECT` / `WAITING`** | Available at recruiter node with upfront monetary offer. Expiration / patience decays each tick. | `RECRUITER` node ID | ✅ Yes |
+| **`RECRUITED`** | Accepted by gang syndicate; upfront offer collected in full. Awaiting voyage departure or next hop. | `RECRUITER` node ID | ✅ Yes |
+| **`IN_TRANSIT` / `TRAVELLING`** | En route across a single-hop cross-border route aboard a vehicle. | Source `RECRUITER` node ID | ✅ Yes |
+| **`ARRIVED` / `AT_DEPOT`** | Safely housed inside target `DEPOT`. Eligible for forwarding, assignment, or booting. | Target `DEPOT` node ID | ❌ No (Housed) |
+| **`ASSIGNED`** | Stationed as active workforce at a `WORKSHOP` or `CRIMINAL_ENTERPRISE`. | Production node ID | ❌ No (Employed) |
+| **`DEPARTED` / `EXITED`** | Finished journey, expired, or booted from gang control. | Last known node | ❌ No (Archived) |
 
 ---
 

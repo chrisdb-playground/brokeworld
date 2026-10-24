@@ -9,6 +9,7 @@ import { processPayroll } from './hoods';
 import { assertInvariants } from './invariants';
 import { tickInfluenceGrowth } from './influence';
 import { handleCommand } from './commands';
+import { BALANCE } from './balance';
 
 /**
  * Main simulation step function.
@@ -49,6 +50,27 @@ export function tickWorld(
 
   // 9. Voyage Scheduling & Progress (cross-border and intra-region)
   processVoyages(state, prng, newEvents);
+
+  // 9b. Periodic Happiness Ticking (waiting decay & lockdown penalties)
+  if (state.tick % BALANCE.HAPPY_WAITING_DECAY_INTERVAL === 0) {
+    for (const m of Object.values(state.migrants)) {
+      if (m.status === 'PROSPECT' || m.status === 'AT_DEPOT' || m.status === 'WAITING') {
+        m.happiness = Math.max(0, (m.happiness ?? BALANCE.INITIAL_MIGRANT_HAPPINESS) - BALANCE.HAPPY_WAITING_DECAY_AMOUNT);
+      }
+    }
+  }
+
+  if (state.tick % BALANCE.HAPPY_LOCKDOWN_PENALTY_INTERVAL === 0) {
+    for (const loc of Object.values(state.locations)) {
+      if (loc.lockdown) {
+        for (const m of Object.values(state.migrants)) {
+          if (m.originId === loc.id && (m.status === 'AT_DEPOT' || m.status === 'ASSIGNED')) {
+            m.happiness = Math.max(0, (m.happiness ?? BALANCE.INITIAL_MIGRANT_HAPPINESS) - BALANCE.HAPPY_LOCKDOWN_PENALTY_AMOUNT);
+          }
+        }
+      }
+    }
+  }
 
   // 10. Event Log Maintenance (keep recent 500 events for full-screen event log)
   if (newEvents.length > 0) {

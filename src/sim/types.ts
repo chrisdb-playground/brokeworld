@@ -2,7 +2,7 @@
 
 export type RegionId = 'AFRICA' | 'EUROPE' | 'UK';
 
-export type LocationKind = 'HQ' | 'WORKSHOP' | 'RECRUITER' | 'DEPOT';
+export type LocationKind = 'HQ' | 'WORKSHOP' | 'RECRUITER' | 'DEPOT' | 'CRIMINAL_ENTERPRISE';
 
 export interface LocationDef {
   id: string;
@@ -22,6 +22,8 @@ export interface LocationDef {
   discoveredByGangId?: string; // Gang whose scout dynamically discovered this candidate site
   createdAtTick?: number; // Tick when dynamically created by scout
   expiresAtTick?: number; // Tick when this unowned candidate node is removed if not purchased
+  reputation?: number; // Recruiter reputation (0-100), belongs to recruiter node
+  lockdown?: boolean; // Lockdown state for depots, workshops, criminal enterprises
 }
 
 export interface CandidateRouteOpportunity {
@@ -120,16 +122,41 @@ export interface MigrantAvatarSpec {
   luggage: 'briefcase' | 'backpack' | 'bundle' | 'none';
 }
 
+export type MigrantGoal = 'LEAVE' | 'WORK' | 'CRIME' | 'MARRY';
+
+export type MigrantStatus =
+  | 'PROSPECT'
+  | 'RECRUITED'
+  | 'TRAVELLING'
+  | 'AT_DEPOT'
+  | 'ASSIGNED'
+  | 'EXITED'
+  | 'LOST'
+  | 'WAITING'
+  | 'IN_TRANSIT'
+  | 'ARRIVED'
+  | 'FAILED'
+  | 'DEPARTED';
+
 export interface MigrantState {
   id: string;
   name: string;
   originName: string; // Origin city/country (e.g. Tripoli, Alexandria, Calais)
   originRegion: RegionId; // 'AFRICA' | 'EUROPE'
   desiredRegion: 'EUROPE' | 'UK'; // Target destination region
-  originId: string; // Recruiter node where migrant is currently waiting
+  originId: string; // Current location node or vehicle
+  destinationId?: string; // Desired final destination node ID
+  destinationRegion?: RegionId; // Desired destination region
+  goal?: MigrantGoal; // Desired activity after reaching destination: LEAVE | WORK | CRIME | MARRY
+  happiness?: number; // Integer, 0-100
+  offer?: number; // Upfront amount offered for transport all the way to final destination
+  originRecruiterId?: string; // Recruiter where migrant first appeared
+  destinationReached?: boolean; // Whether migrant has arrived at final destination
+  goalFulfilled?: boolean; // Whether migrant goal has been fulfilled
+  prospectExpiresTick?: number; // Tick when unaccepted prospect expires
   cash: number;
   patienceRemainingTicks: number;
-  status: 'WAITING' | 'RECRUITED' | 'IN_TRANSIT' | 'ARRIVED' | 'FAILED' | 'DEPARTED';
+  status: MigrantStatus;
   recruitedByGangId?: string;
   assignedRouteId?: string;
   voyageId?: string;
@@ -141,8 +168,8 @@ export interface VoyageState {
   id: string;
   gangId: string;
   routeId: string;
-  sourceId: string; // RECRUITER
-  targetId: string; // DEPOT
+  sourceId: string; // RECRUITER or DEPOT
+  targetId: string; // DEPOT, WORKSHOP, or RECRUITER
   mode: 'VAN' | 'BOAT';
   passengerIds: string[];
   startTick: number;
@@ -186,6 +213,15 @@ export interface SimEvent {
     | 'MIGRANT_SPAWNED'
     | 'MIGRANT_RECRUITED'
     | 'MIGRANT_ARRIVED'
+    | 'PROSPECT_SPAWNED'
+    | 'PROSPECT_ACCEPTED'
+    | 'PROSPECT_EXPIRED'
+    | 'MIGRANT_TRANSFERRED'
+    | 'MIGRANT_ASSIGNED'
+    | 'MIGRANT_BOOTED'
+    | 'MIGRANT_GOAL_FULFILLED'
+    | 'RECRUITER_REP_CHANGED'
+    | 'LOCKDOWN_TOGGLED'
     | 'VOYAGE_LAUNCHED'
     | 'VOYAGE_SUCCESS'
     | 'VOYAGE_DISRUPTED'

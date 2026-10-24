@@ -46,6 +46,7 @@ export class HudOverlay {
   private activeTab: 'world' | 'events' | 'god' = 'world';
   private eventLogView!: EventLogView;
   private godModeView!: GodModeView;
+  private prospectSortMode: 'offer' | 'expiry' | 'happiness' | 'goal' = 'offer';
 
   // Persistent DOM cache for gang cards to prevent recreating DOM on each sim tick
   private gangCardElements: Map<string, HTMLElement> = new Map();
@@ -449,6 +450,61 @@ export class HudOverlay {
           return;
         }
 
+        const lockdownBtn = target.closest<HTMLButtonElement>('.btn-toggle-lockdown');
+        if (lockdownBtn) {
+          e.stopPropagation();
+          const locId = lockdownBtn.getAttribute('data-location-id');
+          if (locId) {
+            this.port.dispatch({ type: 'TOGGLE_LOCKDOWN', payload: { locationId: locId } });
+            setTimeout(() => this.renderInspector(), 30);
+          }
+          return;
+        }
+
+        const acceptProspectBtn = target.closest<HTMLButtonElement>('.btn-accept-prospect');
+        if (acceptProspectBtn) {
+          e.stopPropagation();
+          const rId = acceptProspectBtn.getAttribute('data-recruiter-id');
+          const mId = acceptProspectBtn.getAttribute('data-migrant-id');
+          if (rId && mId) {
+            this.port.dispatch({ type: 'ACCEPT_PROSPECT', payload: { recruiterId: rId, migrantId: mId } });
+            setTimeout(() => this.renderInspector(), 30);
+          }
+          return;
+        }
+
+        const sortBtn = target.closest<HTMLButtonElement>('.btn-sort-prospects');
+        if (sortBtn) {
+          e.stopPropagation();
+          const mode = sortBtn.getAttribute('data-sort-mode') as 'offer' | 'expiry' | 'happiness' | 'goal';
+          if (mode) {
+            this.prospectSortMode = mode;
+            this.renderInspector();
+          }
+          return;
+        }
+
+        const depotActionBtn = target.closest<HTMLButtonElement>('.btn-depot-action');
+        if (depotActionBtn) {
+          e.stopPropagation();
+          const depId = depotActionBtn.getAttribute('data-depot-id');
+          const mId = depotActionBtn.getAttribute('data-migrant-id');
+          const act = depotActionBtn.getAttribute('data-action');
+          if (depId && mId && act) {
+            if (act === 'boot') {
+              this.port.dispatch({ type: 'BOOT_MIGRANT', payload: { depotId: depId, migrantId: mId } });
+            } else if (act === 'workshop') {
+              this.port.dispatch({ type: 'ASSIGN_MIGRANT_WORKSHOP', payload: { depotId: depId, migrantId: mId } });
+            } else if (act === 'crime') {
+              this.port.dispatch({ type: 'ASSIGN_MIGRANT_CRIME', payload: { depotId: depId, migrantId: mId } });
+            } else if (act === 'forward') {
+              this.port.dispatch({ type: 'FORWARD_MIGRANT', payload: { depotId: depId, migrantId: mId } });
+            }
+            setTimeout(() => this.renderInspector(), 30);
+          }
+          return;
+        }
+
         const migrantRow = target.closest<HTMLElement>('.migrant-row-item');
         if (migrantRow) {
           e.stopPropagation();
@@ -761,7 +817,21 @@ export class HudOverlay {
     } else if (this.selectedEntityType === 'LOCATION') {
       const l = this.currentSnapshot.locations[this.selectedEntityId];
       if (l) {
-        stateKey = `:${l.operationalStatus}:${l.gangId}:${l.assignedHoodId || 'none'}`;
+        const migrantsAtLoc = Object.values(this.currentSnapshot.migrants).filter(
+          (c) => c.originId === l.id
+        );
+        const sig = migrantsAtLoc.map((m) => `${m.id}:${m.status}:${m.happiness}:${m.destinationReached}:${m.goalFulfilled}`).join(';');
+        stateKey = `:${l.operationalStatus}:${l.gangId}:${l.assignedHoodId || 'none'}:${l.lockdown ? 1 : 0}:${l.reputation ?? 50}:${this.prospectSortMode}:${sig}`;
+      }
+    } else if (this.selectedEntityType === 'VOYAGE') {
+      const v = this.currentSnapshot.voyages[this.selectedEntityId];
+      if (v) {
+        stateKey = `:${v.passengerIds.join(',')}:${v.status}`;
+      }
+    } else if (this.selectedEntityType === 'MIGRANT') {
+      const m = this.currentSnapshot.migrants[this.selectedEntityId];
+      if (m) {
+        stateKey = `:${m.status}:${m.happiness}:${m.destinationReached}:${m.goalFulfilled}:${m.originId || ''}`;
       }
     }
 
@@ -787,6 +857,11 @@ export class HudOverlay {
       title.textContent = `MIGRANT INSPECTOR`;
       const origin = this.currentSnapshot.locations[migrant.originId];
       const gang = migrant.recruitedByGangId ? this.currentSnapshot.gangs[migrant.recruitedByGangId] : null;
+      const originRecruiter = migrant.originRecruiterId ? this.currentSnapshot.locations[migrant.originRecruiterId] : origin;
+      const destLoc = migrant.destinationId ? this.currentSnapshot.locations[migrant.destinationId] : null;
+      const destName = destLoc ? `${destLoc.name} (${destLoc.region})` : (migrant.destinationRegion || migrant.desiredRegion || 'Europe');
+      const happiness = migrant.happiness ?? 50;
+      const happyColor = happiness >= 70 ? '#10b981' : happiness >= 40 ? '#f59e0b' : '#ef4444';
 
       content.innerHTML = `
         <div class="inspector-migrant-hero">
@@ -796,28 +871,42 @@ export class HudOverlay {
           <div class="migrant-hero-info">
             <h3>${migrant.name}</h3>
             <span class="status-pill status-${migrant.status.toLowerCase()}" id="insp-migrant-status">${migrant.status}</span>
-            <div class="hero-sub">Cash: <b id="insp-migrant-cash">$${migrant.cash}</b></div>
+            <div class="hero-sub">Upfront Offer: <b class="text-green" id="insp-migrant-offer">$${migrant.offer ?? migrant.cash ?? 0}</b></div>
             <div class="hero-sub">Patience: <b id="insp-migrant-patience">${migrant.patienceRemainingTicks} ticks</b></div>
+          </div>
+        </div>
+
+        <div class="migrant-happiness-bar-card">
+          <div class="happiness-header">
+            <span>HAPPINESS STAT</span>
+            <b id="insp-migrant-happiness" style="color: ${happyColor};">${happiness} / 100</b>
+          </div>
+          <div class="happiness-bar-track">
+            <div class="happiness-bar-fill" style="width: ${happiness}%; background: ${happyColor};"></div>
           </div>
         </div>
 
         <div class="insp-grid">
           <div class="insp-row">
-            <span class="lbl">ORIGIN CITY</span>
-            <span class="val highlight">${migrant.originName} (${migrant.originRegion})</span>
+            <span class="lbl">FINAL DESTINATION</span>
+            <span class="val highlight">${destName} ${migrant.destinationReached ? '<span class="dest-badge reached">🏁 Reached</span>' : '<span class="dest-badge enroute">➡️ En Route</span>'}</span>
           </div>
           <div class="insp-row">
-            <span class="lbl">DESIRED GOAL</span>
-            <span class="val highlight">${migrant.desiredRegion === 'UK' ? '🇬🇧 United Kingdom' : '🇪🇺 West Europe'}</span>
+            <span class="lbl">LIFE GOAL</span>
+            <span class="val"><span class="goal-tag goal-${(migrant.goal || 'leave').toLowerCase()}">${migrant.goal || 'LEAVE'}</span> ${migrant.goalFulfilled ? '<span class="fulfilled-badge">✅ Fulfilled</span>' : '<span class="pending-badge">⏳ Pending</span>'}</span>
           </div>
           <div class="insp-row">
-            <span class="lbl">CURRENT NODE</span>
-            <span class="val" id="insp-migrant-node">${origin?.name || 'Recruiter'} (${origin?.region || 'Europe'})</span>
+            <span class="lbl">ORIGIN RECRUITER</span>
+            <span class="val">${originRecruiter?.name || 'Recruiter'} (★ ${originRecruiter?.reputation ?? 50}/100)</span>
           </div>
           <div class="insp-row">
-            <span class="lbl">RECRUITING GANG</span>
+            <span class="lbl">CURRENT LOCATION</span>
+            <span class="val" id="insp-migrant-node">${origin?.name || 'In Transit'} (${origin?.region || 'Europe'})</span>
+          </div>
+          <div class="insp-row">
+            <span class="lbl">RESPONSIBLE GANG</span>
             <span class="val" id="insp-migrant-gang" style="color: ${gang ? gang.color : '#94a3b8'}">
-              ${gang ? `${gang.emblem} ${gang.name}` : 'Waiting for passage'}
+              ${gang ? `${gang.emblem} ${gang.name}` : 'Independent'}
             </span>
           </div>
           <div class="insp-row">
@@ -1030,12 +1119,39 @@ export class HudOverlay {
       const isCandidate = loc.operationalStatus === 'DISCOVERED_CANDIDATE' || loc.gangId === 'NEUTRAL' || !loc.gangId;
       const isUnstaffed = !isCandidate && (loc.operationalStatus === 'UNSTAFFED' || !loc.assignedHoodId);
 
-      const migrantsPresent = Object.values(this.currentSnapshot.migrants).filter(
-        (c) => c.originId === loc.id && (c.status === 'WAITING' || c.status === 'RECRUITED')
+      const prospectsList = Object.values(this.currentSnapshot.migrants).filter(
+        (c) => c.originId === loc.id && (c.status === 'PROSPECT' || c.status === 'WAITING')
       );
-      const migrantsInDepot = Object.values(this.currentSnapshot.migrants).filter(
-        (c) => c.originId === loc.id && c.status === 'ARRIVED'
+      const sortedProspects = [...prospectsList].sort((a, b) => {
+        if (this.prospectSortMode === 'offer') {
+          return (b.offer ?? b.cash ?? 0) - (a.offer ?? a.cash ?? 0);
+        }
+        if (this.prospectSortMode === 'expiry') {
+          const aExp = a.prospectExpiresTick ?? Infinity;
+          const bExp = b.prospectExpiresTick ?? Infinity;
+          return aExp - bExp;
+        }
+        if (this.prospectSortMode === 'happiness') {
+          return (b.happiness ?? 50) - (a.happiness ?? 50);
+        }
+        if (this.prospectSortMode === 'goal') {
+          return (a.goal || '').localeCompare(b.goal || '');
+        }
+        return 0;
+      });
+
+      const recruitedMigrants = Object.values(this.currentSnapshot.migrants).filter(
+        (c) => c.originId === loc.id && c.status === 'RECRUITED'
       );
+
+      const depotOccupants = Object.values(this.currentSnapshot.migrants).filter(
+        (c) => c.originId === loc.id && (c.status === 'ARRIVED' || c.status === 'AT_DEPOT')
+      );
+
+      const stationedWorkers = Object.values(this.currentSnapshot.migrants).filter(
+        (c) => c.originId === loc.id && (c.status === 'ASSIGNED' || c.status === 'ARRIVED')
+      );
+
       const outgoingRoutes = Object.values(this.currentSnapshot.routes).filter(
         (r) => r.sourceId === loc.id && r.status === 'ACTIVE'
       );
@@ -1053,7 +1169,6 @@ export class HudOverlay {
       const multiplier = getNodeHeatMultiplier(effectiveHeat);
       const synergy = gang ? getHqSynergyInfo(this.currentSnapshot, gang.id, loc.x, loc.y) : null;
 
-      // Discovering gangs for candidates
       const candidateCost = loc.candidateCost || 1500;
       const discoveringGangs = isCandidate
         ? Object.values(this.currentSnapshot.gangs).filter(
@@ -1100,19 +1215,191 @@ export class HudOverlay {
             <div class="insp-row"><span class="lbl">DUTY</span><span class="val" style="font-size: 10px; color: #cbd5e1;">${assignedHood.role.replace(/_/g, ' ')}</span></div>
           ` : ''}
           ${loc.kind === 'RECRUITER' ? `
-            <div class="insp-row"><span class="lbl">WAITING MIGRANTS</span><span class="val highlight" id="insp-loc-waiting">${migrantsPresent.length}</span></div>
+            <div class="insp-row"><span class="lbl">PROSPECTS MARKET</span><span class="val highlight" id="insp-loc-waiting">${prospectsList.length}</span></div>
+            <div class="insp-row"><span class="lbl">RECRUITED AWAITING</span><span class="val text-green">${recruitedMigrants.length}</span></div>
             <div class="insp-row"><span class="lbl">OUTGOING ROUTES</span><span class="val" id="insp-loc-out">${outgoingRoutes.length}</span></div>
           ` : ''}
           ${loc.kind === 'DEPOT' ? `
-            <div class="insp-row"><span class="lbl">MIGRANTS IN DEPOT</span><span class="val text-green" id="insp-loc-depot">${migrantsInDepot.length}</span></div>
+            <div class="insp-row"><span class="lbl">MIGRANTS IN DEPOT</span><span class="val text-green" id="insp-loc-depot">${depotOccupants.length}</span></div>
             <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val" id="insp-loc-in">${incomingRoutes.length}</span></div>
             <div class="insp-row"><span class="lbl">OUTGOING ROUTES</span><span class="val" id="insp-loc-out">${outgoingRoutes.length}</span></div>
           ` : ''}
-          ${loc.kind === 'WORKSHOP' ? `
-            <div class="insp-row"><span class="lbl">MIGRANTS AT WORKSHOP</span><span class="val text-amber" id="insp-loc-ws">${migrantsInDepot.length}</span></div>
+          ${(loc.kind === 'WORKSHOP' || loc.kind === 'CRIMINAL_ENTERPRISE') ? `
+            <div class="insp-row"><span class="lbl">ASSIGNED WORKERS</span><span class="val text-amber" id="insp-loc-ws">${stationedWorkers.length}</span></div>
             <div class="insp-row"><span class="lbl">INCOMING ROUTES</span><span class="val" id="insp-loc-in">${incomingRoutes.length}</span></div>
           ` : ''}
         </div>
+
+        ${loc.kind === 'RECRUITER' ? `
+          <div class="recruiter-reputation-card">
+            <div class="rep-header">
+              <span class="rep-label">RECRUITER REPUTATION</span>
+              <span class="rep-score text-cyan">★ ${loc.reputation ?? 50} / 100</span>
+            </div>
+            <div class="rep-bar-track">
+              <div class="rep-bar-fill" style="width: ${loc.reputation ?? 50}%;"></div>
+            </div>
+            <div class="rep-desc">Recruiter reputation drives prospect volume and upfront monetary offers. Outcomes impact this node permanently.</div>
+          </div>
+
+          <div class="prospects-section-header">
+            <div class="insp-subhead" style="margin: 0;">PROSPECTS MARKET (${prospectsList.length})</div>
+            <div class="prospect-sort-bar">
+              <span class="sort-lbl">Sort:</span>
+              <button class="btn-sort-prospects ${this.prospectSortMode === 'offer' ? 'active' : ''}" data-sort-mode="offer">💰 Offer</button>
+              <button class="btn-sort-prospects ${this.prospectSortMode === 'expiry' ? 'active' : ''}" data-sort-mode="expiry">⏳ Expiry</button>
+              <button class="btn-sort-prospects ${this.prospectSortMode === 'happiness' ? 'active' : ''}" data-sort-mode="happiness">😊 Happy</button>
+              <button class="btn-sort-prospects ${this.prospectSortMode === 'goal' ? 'active' : ''}" data-sort-mode="goal">🎯 Goal</button>
+            </div>
+          </div>
+
+          <div class="prospects-scroll-list">
+            ${sortedProspects.map((p) => {
+              const dest = p.destinationId ? this.currentSnapshot.locations[p.destinationId] : null;
+              const destStr = dest ? `${dest.name}` : (p.destinationRegion || p.desiredRegion || 'Europe');
+              const ticksLeft = p.prospectExpiresTick !== undefined ? Math.max(0, p.prospectExpiresTick - this.currentSnapshot.tick) : null;
+              const happy = p.happiness ?? 50;
+              const happyColor = happy >= 70 ? '#10b981' : happy >= 40 ? '#f59e0b' : '#ef4444';
+              return `
+                <div class="prospect-card-item">
+                  <div class="prospect-main-row migrant-row-item" data-migrant-id="${p.id}" style="cursor: pointer;">
+                    <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(p, 36)}</div>
+                    <div class="prospect-info">
+                      <div class="prospect-name">${p.name}</div>
+                      <div class="prospect-details">
+                        <span>🎯 <b class="goal-tag goal-${(p.goal || 'leave').toLowerCase()}">${p.goal || 'LEAVE'}</b></span>
+                        <span>➔ <b>${destStr}</b></span>
+                      </div>
+                    </div>
+                    <div class="prospect-offer-box">
+                      <div class="prospect-offer-val text-green">$${p.offer ?? p.cash ?? 0}</div>
+                      <div class="prospect-sub-stats">
+                        <span style="color: ${happyColor}; font-weight: bold;">😊 ${happy}</span>
+                        ${ticksLeft !== null ? `<span class="text-amber">⏳ ${ticksLeft}t</span>` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="prospect-actions-row">
+                    <button class="btn-accept-prospect" data-recruiter-id="${loc.id}" data-migrant-id="${p.id}">
+                      Accept Prospect ($${p.offer ?? p.cash ?? 0})
+                    </button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+            ${sortedProspects.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No active prospects. New prospects generate over time.</div>' : ''}
+          </div>
+
+          <div class="insp-subhead">RECRUITED MIGRANTS AWAITING VOYAGE (${recruitedMigrants.length})</div>
+          <div class="migrants-scroll-list">
+            ${recruitedMigrants.map((c) => {
+              const dest = c.destinationId ? this.currentSnapshot.locations[c.destinationId] : null;
+              const destStr = dest ? `${dest.name}` : (c.destinationRegion || c.desiredRegion || 'Europe');
+              return `
+                <div class="migrant-row-item" data-migrant-id="${c.id}">
+                  <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
+                  <div class="migrant-mini-info">
+                    <div class="c-name">${c.name}</div>
+                    <div class="c-dest">Dest: <b>${destStr}</b> • Goal: <b>${c.goal || 'LEAVE'}</b></div>
+                  </div>
+                  <span class="c-status" style="background:#a855f722;color:#c084fc">RECRUITED</span>
+                </div>
+              `;
+            }).join('')}
+            ${recruitedMigrants.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No recruited migrants waiting for transport.</div>' : ''}
+          </div>
+        ` : ''}
+
+        ${loc.kind === 'DEPOT' ? `
+          <div class="lockdown-panel">
+            <button class="btn-toggle-lockdown ${loc.lockdown ? 'locked' : 'unlocked'}" data-location-id="${loc.id}">
+              ${loc.lockdown ? '🔒 LOCKDOWN: ACTIVE' : '🔓 LOCKDOWN: OFF'}
+            </button>
+            <div class="lockdown-desc">
+              ${loc.lockdown
+                ? '⚠️ Lockdown active: Voluntary departures blocked. Occupants suffer periodic happiness decay.'
+                : 'Free status: Normal syndicate operations and voluntary departures permitted.'}
+            </div>
+          </div>
+
+          <div class="insp-subhead">DEPOT OCCUPANTS (${depotOccupants.length})</div>
+          <div class="depot-occupants-list">
+            ${depotOccupants.map((m) => {
+              const dest = m.destinationId ? this.currentSnapshot.locations[m.destinationId] : null;
+              const destStr = dest ? `${dest.name}` : (m.destinationRegion || m.desiredRegion || 'Europe');
+              const happy = m.happiness ?? 50;
+              const happyColor = happy >= 70 ? '#10b981' : happy >= 40 ? '#f59e0b' : '#ef4444';
+              return `
+                <div class="depot-occupant-card">
+                  <div class="occupant-main-row migrant-row-item" data-migrant-id="${m.id}" style="cursor: pointer; flex: 1;">
+                    <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(m, 36)}</div>
+                    <div class="occupant-info">
+                      <div class="c-name">${m.name}</div>
+                      <div class="occupant-journey-line">
+                        <span>➔ <b>${destStr}</b> ${m.destinationReached ? '<span class="dest-badge reached">🏁 Reached</span>' : '<span class="dest-badge enroute">➡️ En Route</span>'}</span>
+                      </div>
+                      <div class="occupant-goal-line">
+                        <span>🎯 <b class="goal-tag goal-${(m.goal || 'leave').toLowerCase()}">${m.goal || 'LEAVE'}</b> ${m.goalFulfilled ? '<span class="fulfilled-badge">✅ Fulfilled</span>' : ''}</span>
+                        <span style="color: ${happyColor}; font-weight: bold;">😊 ${happy}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="depot-actions-row">
+                    <button class="btn-depot-action btn-depot-boot" data-depot-id="${loc.id}" data-migrant-id="${m.id}" data-action="boot" title="Boot migrant from gang control (completes LEAVE if at destination, otherwise abandonment penalty)">
+                      🚪 Boot
+                    </button>
+                    <button class="btn-depot-action btn-depot-workshop" data-depot-id="${loc.id}" data-migrant-id="${m.id}" data-action="workshop" title="Assign to local workshop (fulfills WORK if destination reached)">
+                      🔧 Workshop
+                    </button>
+                    <button class="btn-depot-action btn-depot-crime" data-depot-id="${loc.id}" data-migrant-id="${m.id}" data-action="crime" title="Assign to criminal enterprise (fulfills CRIME if destination reached)">
+                      🦹 Crime
+                    </button>
+                    <button class="btn-depot-action btn-depot-forward" data-depot-id="${loc.id}" data-migrant-id="${m.id}" data-action="forward" title="Forward to recruiter for next hop (no fee)">
+                      🔄 Forward
+                    </button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+            ${depotOccupants.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No migrants currently in depot.</div>' : ''}
+          </div>
+        ` : ''}
+
+        ${(loc.kind === 'WORKSHOP' || loc.kind === 'CRIMINAL_ENTERPRISE') ? `
+          <div class="lockdown-panel">
+            <button class="btn-toggle-lockdown ${loc.lockdown ? 'locked' : 'unlocked'}" data-location-id="${loc.id}">
+              ${loc.lockdown ? '🔒 LOCKDOWN: ACTIVE' : '🔓 LOCKDOWN: OFF'}
+            </button>
+            <div class="lockdown-desc">
+              ${loc.lockdown
+                ? '⚠️ Lockdown active: Voluntary departures blocked. Workers suffer periodic happiness decay.'
+                : 'Free status: Normal facility operations permitted.'}
+            </div>
+          </div>
+
+          <div class="insp-subhead">ASSIGNED WORKFORCE (${stationedWorkers.length})</div>
+          <div class="migrants-scroll-list">
+            ${stationedWorkers.map((c) => {
+              const happy = c.happiness ?? 50;
+              const happyColor = happy >= 70 ? '#10b981' : happy >= 40 ? '#f59e0b' : '#ef4444';
+              return `
+                <div class="migrant-row-item" data-migrant-id="${c.id}">
+                  <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
+                  <div class="migrant-mini-info">
+                    <div class="c-name">${c.name}</div>
+                    <div class="c-dest">
+                      Goal: <b class="goal-tag goal-${(c.goal || 'work').toLowerCase()}">${c.goal || 'WORK'}</b>
+                      ${c.goalFulfilled ? '<span class="fulfilled-badge">✅ Fulfilled</span>' : ''}
+                      • <span style="color: ${happyColor};">😊 ${happy}</span>
+                    </div>
+                  </div>
+                  <span class="c-status" style="background:#f59e0b22;color:#fbbf24">ASSIGNED</span>
+                </div>
+              `;
+            }).join('')}
+            ${stationedWorkers.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No migrants currently stationed here.</div>' : ''}
+          </div>
+        ` : ''}
 
         ${isCandidate ? `
           <div class="insp-subhead">CLAIM CANDIDATE SITE ($${candidateCost})</div>
@@ -1148,57 +1435,6 @@ export class HudOverlay {
               </div>
             `).join('')}
             ${gangHoods.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No Hoods employed yet.</div>' : ''}
-          </div>
-        ` : ''}
-
-        ${loc.kind === 'RECRUITER' ? `
-          <div class="insp-subhead">WAITING MIGRANTS (${migrantsPresent.length})</div>
-          <div class="migrants-scroll-list" id="insp-loc-migrants-list" data-list-sig="${migrantsPresent.map((c) => c.id).join(';')}">
-            ${migrantsPresent.map((c) => `
-              <div class="migrant-row-item" data-migrant-id="${c.id}">
-                <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
-                <div class="migrant-mini-info">
-                  <div class="c-name">${c.name} (${c.originName})</div>
-                  <div class="c-dest">Destination: <b>${c.desiredRegion}</b></div>
-                </div>
-                <span class="c-status">${c.status}</span>
-              </div>
-            `).join('')}
-            ${migrantsPresent.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No migrants waiting.</div>' : ''}
-          </div>
-        ` : ''}
-
-        ${loc.kind === 'DEPOT' ? `
-          <div class="insp-subhead">MIGRANTS HOUSED IN DEPOT (${migrantsInDepot.length})</div>
-          <div class="migrants-scroll-list" id="insp-loc-migrants-list" data-list-sig="${migrantsInDepot.map((c) => c.id).join(';')}">
-            ${migrantsInDepot.map((c) => `
-              <div class="migrant-row-item" data-migrant-id="${c.id}">
-                <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
-                <div class="migrant-mini-info">
-                  <div class="c-name">${c.name} (${c.originName})</div>
-                  <div class="c-dest">Status: <b class="text-green">Housed in Depot</b></div>
-                </div>
-                <span class="c-status" style="background:#10b98122;color:#34d399">ARRIVED</span>
-              </div>
-            `).join('')}
-            ${migrantsInDepot.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No migrants in depot yet.</div>' : ''}
-          </div>
-        ` : ''}
-
-        ${loc.kind === 'WORKSHOP' ? `
-          <div class="insp-subhead">MIGRANTS STATIONED AT WORKSHOP (${migrantsInDepot.length})</div>
-          <div class="migrants-scroll-list" id="insp-loc-migrants-list" data-list-sig="${migrantsInDepot.map((c) => c.id).join(';')}">
-            ${migrantsInDepot.map((c) => `
-              <div class="migrant-row-item" data-migrant-id="${c.id}">
-                <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
-                <div class="migrant-mini-info">
-                  <div class="c-name">${c.name} (${c.originName})</div>
-                  <div class="c-dest">Status: <b class="text-amber">Working in Workshop</b></div>
-                </div>
-                <span class="c-status" style="background:#f59e0b22;color:#fbbf24">ARRIVED</span>
-              </div>
-            `).join('')}
-            ${migrantsInDepot.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No migrants stationed at workshop yet.</div>' : ''}
           </div>
         ` : ''}
       `;
@@ -1265,15 +1501,21 @@ export class HudOverlay {
 
         <div class="insp-subhead">PASSENGERS ON BOARD (${passengers.length})</div>
         <div class="migrants-scroll-list">
-          ${passengers.map((c) => `
-            <div class="migrant-row-item" data-migrant-id="${c.id}">
-              <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
-              <div class="migrant-mini-info">
-                <div class="c-name">${c.name} (${c.originName})</div>
-                <div class="c-dest">Target: <b>${c.desiredRegion}</b></div>
+          ${passengers.map((c) => {
+            const dest = c.destinationId ? this.currentSnapshot.locations[c.destinationId] : null;
+            const destStr = dest ? `${dest.name}` : (c.destinationRegion || c.desiredRegion || 'Europe');
+            const happy = c.happiness ?? 50;
+            const happyColor = happy >= 70 ? '#10b981' : happy >= 40 ? '#f59e0b' : '#ef4444';
+            return `
+              <div class="migrant-row-item" data-migrant-id="${c.id}">
+                <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
+                <div class="migrant-mini-info">
+                  <div class="c-name">${c.name}</div>
+                  <div class="c-dest">Dest: <b>${destStr}</b> • Goal: <b>${c.goal || 'LEAVE'}</b> • <span style="color: ${happyColor}; font-weight: bold;">😊 ${happy}</span></div>
+                </div>
               </div>
-            </div>
-          `).join('')}
+            `;
+          }).join('')}
           ${passengers.length === 0 ? '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No passengers currently on board.</div>' : ''}
         </div>
       `;
@@ -1401,28 +1643,7 @@ export class HudOverlay {
       const inEl = content.querySelector('#insp-loc-in');
       if (inEl) inEl.textContent = `${incomingRoutes.length}`;
 
-      const migrantsListEl = content.querySelector('#insp-loc-migrants-list');
-      if (migrantsListEl) {
-        const targetMigrants = loc.kind === 'RECRUITER' ? migrantsPresent : migrantsInDepot;
-        const currentListKey = migrantsListEl.getAttribute('data-list-sig');
-        const newListKey = targetMigrants.map((c) => `${c.id}:${c.status}`).join(';');
-        if (currentListKey !== newListKey) {
-          migrantsListEl.setAttribute('data-list-sig', newListKey);
-          migrantsListEl.innerHTML = targetMigrants.map((c) => `
-            <div class="migrant-row-item" data-migrant-id="${c.id}">
-              <div class="migrant-mini-avatar">${MigrantRenderer.generateSvg(c, 36)}</div>
-              <div class="migrant-mini-info">
-                <div class="c-name">${c.name} (${c.originName})</div>
-                <div class="c-dest">${loc.kind === 'RECRUITER' ? `Destination: <b>${c.desiredRegion}</b>` : `Status: <b class="text-green">Housed in Depot</b>`}</div>
-              </div>
-              <span class="c-status">${c.status}</span>
-            </div>
-          `).join('');
-          if (targetMigrants.length === 0) {
-            migrantsListEl.innerHTML = '<div style="color:#64748b;font-size:11px;padding:8px 4px;">No migrants here currently.</div>';
-          }
-        }
-      }
+
     } else if (this.selectedEntityType === 'ROUTE') {
       const route = this.currentSnapshot.routes[this.selectedEntityId!];
       if (!route) return;

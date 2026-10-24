@@ -7,6 +7,12 @@ import type {
 import type { SeededPrng } from './rng';
 import { ensureGangNodesStaffed, hireHood } from './hoods';
 import { executeClaimCandidateNode, executePurchaseBorderRoute } from './influence';
+import {
+  bootMigrant,
+  assignMigrantToWorkshop,
+  assignMigrantToCriminalEnterprise,
+  forwardMigrantToRecruiter,
+} from './depotActions';
 
 export function processGangAI(
   state: WorldSnapshot,
@@ -147,6 +153,54 @@ export function processGangAI(
             break; // One purchase per cycle to stagger growth
           } catch {
             // Insufficient funds or invalid
+          }
+        }
+      }
+    }
+
+    // 6. Autonomous Migrant Management (Depot forwarding, assignments, and releases)
+    const gangDepots = Object.values(state.locations).filter(
+      (l) => l.gangId === gang.id && l.kind === 'DEPOT'
+    );
+    for (const depot of gangDepots) {
+      const occupants = Object.values(state.migrants).filter(
+        (m) => m.originId === depot.id && (m.status === 'AT_DEPOT' || m.status === 'ARRIVED')
+      );
+
+      for (const migrant of occupants) {
+        if (migrant.destinationReached || migrant.destinationId === depot.id) {
+          // Reached final destination!
+          if (migrant.goal === 'LEAVE' || migrant.goal === 'MARRY') {
+            bootMigrant(state, migrant.id, events);
+            addDecision(gang, state.tick, 'RELEASE_MIGRANT', `Released ${migrant.name} at destination (Goal ${migrant.goal} fulfilled).`);
+          } else if (migrant.goal === 'WORK') {
+            const ws = Object.values(state.locations).find(
+              (l) => (l.kind === 'WORKSHOP' || l.kind === 'CRIMINAL_ENTERPRISE') && l.gangId === gang.id && l.region === depot.region
+            );
+            if (ws) {
+              assignMigrantToWorkshop(state, migrant.id, ws.id, events);
+              addDecision(gang, state.tick, 'ASSIGN_WORKSHOP', `Assigned ${migrant.name} to ${ws.name} (WORK goal fulfilled).`);
+            }
+          } else if (migrant.goal === 'CRIME') {
+            const ce = Object.values(state.locations).find(
+              (l) => (l.kind === 'CRIMINAL_ENTERPRISE' || l.kind === 'WORKSHOP') && l.gangId === gang.id && l.region === depot.region
+            );
+            if (ce) {
+              assignMigrantToCriminalEnterprise(state, migrant.id, ce.id, events);
+              addDecision(gang, state.tick, 'ASSIGN_CRIME', `Assigned ${migrant.name} to ${ce.name} (CRIME goal fulfilled).`);
+            }
+          }
+        } else {
+          // Intermediate depot: check if continuation recruiter exists in same region
+          const nextRecruiter = Object.values(state.locations).find((l) => {
+            if (l.kind !== 'RECRUITER' || l.gangId !== gang.id || l.region !== depot.region) return false;
+            return Object.values(state.routes).some(
+              (r) => r.gangId === gang.id && r.sourceId === l.id && r.status === 'ACTIVE'
+            );
+          });
+          if (nextRecruiter) {
+            forwardMigrantToRecruiter(state, migrant.id, nextRecruiter.id, events);
+            addDecision(gang, state.tick, 'FORWARD_MIGRANT', `Forwarded ${migrant.name} to ${nextRecruiter.name} for onward travel.`);
           }
         }
       }

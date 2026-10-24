@@ -94,6 +94,7 @@ export function canPurchaseNode(
     RECRUITER: 2500,
     DEPOT: 2000,
     WORKSHOP: 3500,
+    CRIMINAL_ENTERPRISE: 3500,
     HQ: 4000,
   };
   const cost = costs[kind] || 2500;
@@ -298,6 +299,7 @@ export function executePurchaseNode(
     RECRUITER: `${gang.name} ${region} Recruiter`,
     DEPOT: `${gang.name} ${region} Depot`,
     WORKSHOP: `${gang.name} Workshop Annex`,
+    CRIMINAL_ENTERPRISE: `${gang.name} Smuggling Front`,
     HQ: `${gang.name} HQ`,
   };
   const name = customName || defaultNames[kind];

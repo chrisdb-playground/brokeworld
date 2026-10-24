@@ -8,6 +8,14 @@ import {
   executePurchaseBorderRoute,
 } from './influence';
 import { scoutAreaForNodes, scoutSearchForRoutes } from './scouts';
+import { acceptProspect } from './recruitment';
+import {
+  bootMigrant,
+  assignMigrantToWorkshop,
+  assignMigrantToCriminalEnterprise,
+  forwardMigrantToRecruiter,
+  toggleLockdown,
+} from './depotActions';
 
 /**
  * Handle user/agent interactive commands dispatched to the simulation engine.
@@ -369,5 +377,23 @@ export function handleCommand(
       description: `👑 God Mode: Disbursed universal stimulus of +$${amt.toLocaleString()} to all active syndicates!`,
       importance: 'HIGH',
     });
+  } else if (cmd.type === 'ACCEPT_PROSPECT') {
+    const payload = cmd.payload as { migrantId: string };
+    acceptProspect(state, payload.migrantId, events);
+  } else if (cmd.type === 'BOOT_MIGRANT') {
+    const payload = cmd.payload as { migrantId: string };
+    bootMigrant(state, payload.migrantId, events);
+  } else if (cmd.type === 'ASSIGN_MIGRANT_WORKSHOP') {
+    const payload = cmd.payload as { migrantId: string; workshopId?: string };
+    assignMigrantToWorkshop(state, payload.migrantId, payload.workshopId, events);
+  } else if (cmd.type === 'ASSIGN_MIGRANT_CRIME') {
+    const payload = cmd.payload as { migrantId: string; enterpriseId?: string };
+    assignMigrantToCriminalEnterprise(state, payload.migrantId, payload.enterpriseId, events);
+  } else if (cmd.type === 'FORWARD_MIGRANT') {
+    const payload = cmd.payload as { migrantId: string; recruiterId?: string };
+    forwardMigrantToRecruiter(state, payload.migrantId, payload.recruiterId, events);
+  } else if (cmd.type === 'TOGGLE_LOCKDOWN') {
+    const payload = cmd.payload as { locationId: string };
+    toggleLockdown(state, payload.locationId, events);
   }
 }

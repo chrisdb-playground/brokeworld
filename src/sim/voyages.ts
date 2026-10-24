@@ -1,6 +1,8 @@
 import type { RouteServiceState, SimEvent, VoyageState, WorldSnapshot } from './types';
 import type { SeededPrng } from './rng';
 import { assignHoodToVoyage, hireHood, releaseHoodFromVoyage } from './hoods';
+import { BALANCE } from './balance';
+import { updateRecruiterReputation } from './reputation';
 
 let voyageSeq = 1;
 
@@ -8,7 +10,12 @@ export function resetVoyageSeq(val = 1) {
   voyageSeq = val;
 }
 
-export function establishDepotWorkshopRoutes(
+/**
+ * Establishes intra-region overland van routes for gangs:
+ * 1. Depot -> Workshop (for employment)
+ * 2. Depot -> Recruiter (for multi-hop transfers to next border crossing)
+ */
+export function establishDepotTransferRoutes(
   state: WorldSnapshot,
   events?: SimEvent[]
 ): void {
@@ -19,9 +26,10 @@ export function establishDepotWorkshopRoutes(
       (l) => l.gangId === gang.id && l.kind === 'DEPOT'
     );
     const gangWorkshops = Object.values(state.locations).filter(
-      (l) => l.gangId === gang.id && l.kind === 'WORKSHOP'
+      (l) => l.gangId === gang.id && (l.kind === 'WORKSHOP' || l.kind === 'CRIMINAL_ENTERPRISE')
     );
 
+    // Depot -> Workshop routes
     for (const depot of gangDepots) {
       for (const workshop of gangWorkshops) {
         if (depot.region === workshop.region) {
@@ -81,13 +89,16 @@ export function establishDepotWorkshopRoutes(
   }
 }
 
+// Retain alias for existing imports
+export const establishDepotWorkshopRoutes = establishDepotTransferRoutes;
+
 export function processVoyages(
   state: WorldSnapshot,
   prng: SeededPrng,
   events: SimEvent[]
 ): void {
-  // Ensure all same-region depot-to-workshop routes are active
-  establishDepotWorkshopRoutes(state, events);
+  // Ensure all same-region depot-to-workshop and depot-to-recruiter routes are active
+  establishDepotTransferRoutes(state, events);
 
   // 1. Launch new voyages for routes
   for (const route of Object.values(state.routes)) {
@@ -114,35 +125,63 @@ export function processVoyages(
     let manifestPassengers: typeof state.migrants[string][] = [];
 
     if (srcLoc.kind === 'RECRUITER' && tgtLoc.kind === 'DEPOT') {
-      // Find recruited migrants waiting for this specific route
-      const passengers = Object.values(state.migrants).filter(
-        (c) => c.status === 'RECRUITED' && c.assignedRouteId === route.id
-      );
+      // Find recruited migrants waiting for this specific route or heading toward target depot/region
+      const passengers = Object.values(state.migrants).filter((c) => {
+        if (c.status !== 'RECRUITED') return false;
+        if (c.originId !== srcLoc.id) return false;
+        if (c.assignedRouteId && c.assignedRouteId === route.id) return true;
+        // Check route suitability: destination matches target depot or destination region matches
+        if (c.destinationId === tgtLoc.id) return true;
+        if (tgtLoc.region === c.desiredRegion) return true;
+        if (c.desiredRegion === 'UK' && tgtLoc.region === 'EUROPE') return true;
+        return false;
+      });
 
       if (passengers.length === 0) continue;
 
       // Batch up to route capacity
       manifestPassengers = passengers.slice(0, route.capacity);
-    } else if (srcLoc.kind === 'DEPOT' && tgtLoc.kind === 'WORKSHOP') {
-      // Find arrived Migrants currently residing in this depot
+    } else if (srcLoc.kind === 'DEPOT' && (tgtLoc.kind === 'WORKSHOP' || tgtLoc.kind === 'CRIMINAL_ENTERPRISE')) {
+      // Find arrived Migrants currently residing in this depot seeking work or assignment
       const migrantsInDepot = Object.values(state.migrants).filter(
-        (c) => c.status === 'ARRIVED' && c.originId === route.sourceId
+        (c) => (c.status === 'AT_DEPOT' || c.status === 'ARRIVED') && c.originId === route.sourceId
       );
 
       if (migrantsInDepot.length === 0) continue;
 
-      // Rule: "randomly decided if migrants in depot can be sent to workshop. if yes for a bunch of migrants, create a voyage from depot to workshop."
-      // Seeded random decision: 20% chance per tick when migrants reside in depot
+      // Prioritize migrants whose goal is WORK or CRIME
+      const goalMatched = migrantsInDepot.filter((c) => c.goal === 'WORK' || c.goal === 'CRIME');
+      const candidates = goalMatched.length > 0 ? goalMatched : migrantsInDepot;
+
       if (!prng.chance(0.20)) continue;
 
-      // Seeded random batch size for "a bunch of migrants" (1 to capacity)
-      const bunchSize = prng.nextInt(1, Math.min(migrantsInDepot.length, route.capacity));
-      const candidates = [...migrantsInDepot];
+      const bunchSize = prng.nextInt(1, Math.min(candidates.length, route.capacity));
+      const pool = [...candidates];
       manifestPassengers = [];
       for (let i = 0; i < bunchSize; i++) {
-        const pickedIdx = prng.nextInt(0, candidates.length - 1);
-        manifestPassengers.push(candidates.splice(pickedIdx, 1)[0]);
+        const pickedIdx = prng.nextInt(0, pool.length - 1);
+        manifestPassengers.push(pool.splice(pickedIdx, 1)[0]);
       }
+    } else if (srcLoc.kind === 'DEPOT' && tgtLoc.kind === 'RECRUITER') {
+      // Multi-hop transfer: Migrants in intermediate depot needing to reach next recruiter
+      const migrantsInDepot = Object.values(state.migrants).filter(
+        (c) => (c.status === 'AT_DEPOT' || c.status === 'ARRIVED') && c.originId === route.sourceId && !c.destinationReached
+      );
+
+      if (migrantsInDepot.length === 0) continue;
+
+      // Filter migrants whose desired destination requires this recruiter (e.g. UK destination from Europe recruiter)
+      const needingTransfer = migrantsInDepot.filter((c) => {
+        if (c.destinationReached) return false;
+        if (c.desiredRegion === 'UK' && tgtLoc.region === 'EUROPE') return true;
+        if (c.destinationRegion && c.destinationRegion !== srcLoc.region) return true;
+        return false;
+      });
+
+      if (needingTransfer.length === 0) continue;
+
+      const bunchSize = Math.min(needingTransfer.length, route.capacity);
+      manifestPassengers = needingTransfer.slice(0, bunchSize);
     } else {
       continue;
     }
@@ -167,9 +206,7 @@ export function processVoyages(
       status: 'IN_PROGRESS',
     };
 
-    // Rule: "a gang must employee hood to do anything- run voyages, manage nodes, recruiters, workshops, whatever."
-    // Rule: "for now gangs just hire hoods no money for now."
-    // Find an idle standby Hood for this gang, or hire a new Hood skipper/driver
+    // Staff voyage with Hood skipper / driver
     let skipperHood = Object.values(state.hoods).find(
       (h) => h.gangId === route.gangId && h.assignment.type === 'IDLE_HQ'
     );
@@ -199,9 +236,9 @@ export function processVoyages(
     const driverTitle = isVan ? 'Driver' : 'Skipper';
     const voyageType = isVan ? 'van transfer' : 'voyage';
 
-    // Update passengers to IN_TRANSIT
+    // Update passengers to TRAVELLING / IN_TRANSIT
     for (const p of manifestPassengers) {
-      p.status = 'IN_TRANSIT';
+      p.status = 'TRAVELLING';
       p.voyageId = voyageId;
       p.assignedRouteId = route.id;
       p.history.push(
@@ -234,7 +271,7 @@ export function processVoyages(
       const pct = Math.round(voyage.progress * 100);
       const isVan = voyage.mode === 'VAN';
       const verb = isVan ? 'Driving' : 'Skippering';
-      const destType = tgt?.kind === 'WORKSHOP' ? 'workshop' : 'depot';
+      const destType = tgt?.kind === 'WORKSHOP' ? 'workshop' : tgt?.kind === 'RECRUITER' ? 'recruiter' : 'depot';
       hood.currentTaskDescription = `${verb} ${voyage.mode.toLowerCase()} to ${tgt?.name || destType} (${pct}%)`;
     }
 
@@ -254,7 +291,8 @@ function resolveVoyage(
   const gang = state.gangs[voyage.gangId];
   const targetLoc = state.locations[voyage.targetId];
   const srcLoc = state.locations[voyage.sourceId];
-  const isWorkshop = targetLoc?.kind === 'WORKSHOP';
+  const isWorkshop = targetLoc?.kind === 'WORKSHOP' || targetLoc?.kind === 'CRIMINAL_ENTERPRISE';
+  const isRecruiterTransfer = targetLoc?.kind === 'RECRUITER';
   const isFromDepot = srcLoc?.kind === 'DEPOT';
 
   // Base failure chance from route reliability (~1% to 3%)
@@ -267,18 +305,18 @@ function resolveVoyage(
   }
 
   if (!isFailed) {
-    // SUCCESS - arrived at target Depot or Workshop!
+    // SUCCESS - arrived at target Depot, Recruiter, or Workshop!
     voyage.status = 'SUCCESS';
-    const payoutPerPassenger = isWorkshop ? 120 : 380;
+    const payoutPerPassenger = isWorkshop ? 120 : (isRecruiterTransfer ? 0 : 380);
     const totalPayout = voyage.passengerIds.length * payoutPerPassenger;
 
-    if (gang) {
+    if (gang && totalPayout > 0) {
       gang.cash += totalPayout;
       gang.stats.revenueTotal += totalPayout;
       gang.stats.voyagesSuccessful++;
       gang.reputation = Math.min(100, gang.reputation + 1);
 
-      // Successful voyage expands HQ influence in source and target regions!
+      // Successful voyage expands HQ influence in source and target regions
       for (const loc of Object.values(state.locations)) {
         if (loc.gangId === gang.id && loc.kind === 'HQ') {
           if (loc.region === srcLoc?.region || loc.region === targetLoc?.region) {
@@ -286,7 +324,10 @@ function resolveVoyage(
           }
         }
       }
+    } else if (gang) {
+      gang.stats.voyagesSuccessful++;
     }
+
     if (route) {
       route.totalPassengers += voyage.passengerIds.length;
       route.revenue += totalPayout;
@@ -295,24 +336,78 @@ function resolveVoyage(
 
     for (const pid of voyage.passengerIds) {
       const migrant = state.migrants[pid];
-      if (migrant) {
+      if (!migrant) continue;
+
+      migrant.assignedRouteId = undefined;
+      migrant.voyageId = undefined;
+
+      if (isRecruiterTransfer) {
+        // Arrived at intermediate recruiter for continuation voyage (no second payment!)
+        migrant.status = 'RECRUITED';
+        migrant.originId = voyage.targetId;
+        migrant.happiness = Math.min(100, (migrant.happiness ?? BALANCE.INITIAL_MIGRANT_HAPPINESS) + BALANCE.HAPPY_PROGRESS_HOP);
+        migrant.history.push(
+          `[Tick ${state.tick}] Completed van transfer from ${srcLoc?.name || 'depot'} to ${targetLoc?.name || 'recruiter'}. Registered as recruit for onward journey.`
+        );
+
+        events.push({
+          id: `EVT_ARR_REC_${migrant.id}_${state.tick}`,
+          tick: state.tick,
+          type: 'MIGRANT_TRANSFERRED',
+          description: `${migrant.name} arrived at ${targetLoc?.name || 'recruiter'} ready for next voyage.`,
+          importance: 'LOW',
+          gangId: voyage.gangId,
+          locationId: voyage.targetId,
+        });
+      } else if (isWorkshop) {
+        // Arrived at Workshop or Criminal Enterprise
         migrant.status = 'ARRIVED';
         migrant.originId = voyage.targetId;
-        migrant.recruitedByGangId = undefined;
-        migrant.assignedRouteId = undefined;
-        migrant.voyageId = undefined;
 
-        if (!isWorkshop) {
-          // Cross-border Recruiter -> Depot arrival
-          state.stats.activeMigrants--;
-          state.stats.totalDepartedMigrants++;
+        const isDestReached = migrant.destinationReached || migrant.destinationId === targetLoc.id || targetLoc.region === migrant.destinationRegion;
+
+        if (isDestReached && (migrant.goal === 'WORK' || (targetLoc.kind === 'CRIMINAL_ENTERPRISE' && migrant.goal === 'CRIME'))) {
+          migrant.destinationReached = true;
+          migrant.goalFulfilled = true;
+          migrant.happiness = Math.min(100, (migrant.happiness ?? BALANCE.INITIAL_MIGRANT_HAPPINESS) + BALANCE.HAPPY_GOAL_FULFILLED);
+          updateRecruiterReputation(state, migrant.originRecruiterId, BALANCE.REP_DELTA_GOAL_FULFILLED, events, 'Arrived at destination and fulfilled employment goal');
+          migrant.history.push(`[Tick ${state.tick}] Delivered to ${targetLoc.name} (${targetLoc.region}). Goal ${migrant.goal} successfully fulfilled.`);
+        } else {
+          migrant.happiness = Math.max(0, (migrant.happiness ?? BALANCE.INITIAL_MIGRANT_HAPPINESS) + BALANCE.HAPPY_MISMATCH_ASSIGNMENT);
+          migrant.history.push(`[Tick ${state.tick}] Delivered to ${targetLoc.name}. Assigned contrary to desired goal or before destination.`);
+        }
+
+        events.push({
+          id: `EVT_ARR_WS_${migrant.id}_${state.tick}`,
+          tick: state.tick,
+          type: 'MIGRANT_ARRIVED',
+          description: `${migrant.name} arrived at ${targetLoc?.name || 'workshop'} to start work (Goal fulfilled: ${migrant.goalFulfilled ? 'YES' : 'NO'}).`,
+          importance: 'LOW',
+          gangId: voyage.gangId,
+          locationId: voyage.targetId,
+        });
+      } else {
+        // Arrived at Depot
+        migrant.status = 'ARRIVED';
+        migrant.originId = voyage.targetId;
+        state.stats.activeMigrants = Math.max(0, state.stats.activeMigrants - 1);
+        state.stats.totalDepartedMigrants++;
+
+        // Check if migrant reached their specified destination
+        const isFinal = migrant.destinationId === targetLoc.id || (targetLoc.region === migrant.destinationRegion && (migrant.destinationId === targetLoc.id || !state.locations[migrant.destinationId || '']));
+
+        if (isFinal) {
+          migrant.destinationReached = true;
+          migrant.happiness = Math.min(100, (migrant.happiness ?? BALANCE.INITIAL_MIGRANT_HAPPINESS) + BALANCE.HAPPY_DESTINATION_REACHED);
           migrant.history.push(
-            `[Tick ${state.tick}] Completed voyage from ${srcLoc?.name || 'recruiter'} and arrived at ${targetLoc?.name || 'depot'} (${targetLoc?.region}). Remaining in depot.`
+            `[Tick ${state.tick}] Reached final destination depot ${targetLoc.name} (${targetLoc.region}). Awaiting goal fulfillment or release.`
           );
         } else {
-          // Intra-region Depot -> Workshop arrival
+          // Intermediate depot arrival!
+          migrant.destinationReached = false;
+          migrant.happiness = Math.min(100, (migrant.happiness ?? BALANCE.INITIAL_MIGRANT_HAPPINESS) + BALANCE.HAPPY_PROGRESS_HOP);
           migrant.history.push(
-            `[Tick ${state.tick}] Completed van transfer from ${srcLoc?.name || 'depot'} and arrived at ${targetLoc?.name || 'workshop'} (${targetLoc?.region}). Assigned to workshop duties.`
+            `[Tick ${state.tick}] Reached intermediate depot ${targetLoc.name} (${targetLoc.region}). Continuing onward journey.`
           );
         }
 
@@ -320,9 +415,7 @@ function resolveVoyage(
           id: `EVT_ARR_${migrant.id}_${state.tick}`,
           tick: state.tick,
           type: 'MIGRANT_ARRIVED',
-          description: isWorkshop
-            ? `${migrant.name} arrived at ${targetLoc?.name || 'workshop'} to start work.`
-            : `${migrant.name} arrived at ${targetLoc?.name || 'depot'} and settled into the depot.`,
+          description: `${migrant.name} arrived at ${targetLoc?.name || 'depot'} (Destination reached: ${migrant.destinationReached ? 'YES' : 'NO'}).`,
           importance: 'LOW',
           gangId: voyage.gangId,
           locationId: voyage.targetId,
@@ -335,7 +428,9 @@ function resolveVoyage(
       tick: state.tick,
       type: 'VOYAGE_SUCCESS',
       description: isWorkshop
-        ? `Van convoy arrived safely at ${targetLoc?.name || 'workshop'} (${voyage.passengerIds.length} Migrants delivered to workshop).`
+        ? `Van convoy arrived safely at ${targetLoc?.name || 'workshop'} (${voyage.passengerIds.length} Migrants delivered).`
+        : isRecruiterTransfer
+        ? `Overland transfer arrived safely at ${targetLoc?.name || 'recruiter'} (${voyage.passengerIds.length} Migrants forwarded).`
         : `Voyage arrived safely at ${targetLoc?.name || 'depot'} (${voyage.passengerIds.length} Migrants safely housed in depot).`,
       importance: 'MEDIUM',
       gangId: voyage.gangId,
@@ -354,28 +449,27 @@ function resolveVoyage(
 
     for (const pid of voyage.passengerIds) {
       const migrant = state.migrants[pid];
-      if (migrant) {
-        if (isFromDepot) {
-          // Depot -> Workshop failure: safely returned to Depot as ARRIVED
-          migrant.status = 'ARRIVED';
-          migrant.originId = voyage.sourceId;
-          migrant.recruitedByGangId = undefined;
-          migrant.assignedRouteId = undefined;
-          migrant.voyageId = undefined;
-          migrant.history.push(
-            `[Tick ${state.tick}] Workshop transfer was ${voyage.status.toLowerCase()}! Returned safely to ${srcLoc?.name || 'depot'}.`
-          );
-        } else {
-          // Recruiter -> Depot failure: returned to recruiter as WAITING
-          migrant.status = 'WAITING';
-          migrant.recruitedByGangId = undefined;
-          migrant.assignedRouteId = undefined;
-          migrant.voyageId = undefined;
-          migrant.patienceRemainingTicks = Math.max(300, migrant.patienceRemainingTicks - 200);
-          migrant.history.push(
-            `[Tick ${state.tick}] Voyage was ${voyage.status.toLowerCase()}! Returned to waiting at ${srcLoc?.name || 'recruiter'}.`
-          );
-        }
+      if (!migrant) continue;
+
+      migrant.assignedRouteId = undefined;
+      migrant.voyageId = undefined;
+      migrant.happiness = Math.max(0, (migrant.happiness ?? BALANCE.INITIAL_MIGRANT_HAPPINESS) + BALANCE.HAPPY_VOYAGE_DISRUPTED);
+
+      if (isFromDepot) {
+        // Returned safely to Depot as AT_DEPOT
+        migrant.status = 'AT_DEPOT';
+        migrant.originId = voyage.sourceId;
+        migrant.history.push(
+          `[Tick ${state.tick}] Transfer was ${voyage.status.toLowerCase()}! Returned safely to ${srcLoc?.name || 'depot'}.`
+        );
+      } else {
+        // Returned to recruiter as RECRUITED
+        migrant.status = 'RECRUITED';
+        migrant.originId = voyage.sourceId;
+        migrant.patienceRemainingTicks = Math.max(300, migrant.patienceRemainingTicks - 200);
+        migrant.history.push(
+          `[Tick ${state.tick}] Voyage was ${voyage.status.toLowerCase()}! Returned to waiting at ${srcLoc?.name || 'recruiter'}.`
+        );
       }
     }
 
@@ -384,7 +478,7 @@ function resolveVoyage(
       tick: state.tick,
       type: 'VOYAGE_DISRUPTED',
       description: isFromDepot
-        ? `Van transfer from ${srcLoc?.name || 'depot'} to ${targetLoc?.name || 'workshop'} was ${voyage.status}! Passengers returned to depot.`
+        ? `Van transfer from ${srcLoc?.name || 'depot'} to ${targetLoc?.name || 'node'} was ${voyage.status}! Passengers returned to depot.`
         : `Voyage from ${srcLoc?.name || 'recruiter'} to ${targetLoc?.name || 'depot'} was ${voyage.status}! Passengers returned to recruiter.`,
       importance: 'HIGH',
       gangId: voyage.gangId,

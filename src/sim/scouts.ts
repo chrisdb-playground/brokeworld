@@ -29,6 +29,7 @@ const REGION_NODE_NAMES: Record<RegionId, Record<LocationKind, string[]>> = {
     ],
     DEPOT: ['Tripoli Supply Depot', 'Alexandria Coastal Depot'],
     WORKSHOP: ['Atlas Transit Workshop'],
+    CRIMINAL_ENTERPRISE: ['Sahara Contraband Syndicate'],
     HQ: [
       'Tripoli Safehouse Citadel HQ',
       'Tangier Kasbah Citadel HQ',
@@ -57,6 +58,11 @@ const REGION_NODE_NAMES: Record<RegionId, Record<LocationKind, string[]>> = {
       'Ardennes Mechanical Annex',
       'Seine Industrial Press Workshop',
     ],
+    CRIMINAL_ENTERPRISE: [
+      'Riviera Shadow Syndicate',
+      'Antwerp Diamond Pier Front',
+      'Marseille Port Racket',
+    ],
     HQ: [
       'Marseille Maritime HQ',
       'Rotterdam Safehouse HQ',
@@ -74,6 +80,7 @@ const REGION_NODE_NAMES: Record<RegionId, Record<LocationKind, string[]>> = {
       'Hastings Estuary Depot',
     ],
     WORKSHOP: ['Midlands Smuggling Assembly Workshop'],
+    CRIMINAL_ENTERPRISE: ['London Docklands Syndicate', 'Soho Shadow Front'],
     HQ: [
       'Dover Harbour Safehouse HQ',
       'London Thameside Citadel HQ',
